@@ -8,6 +8,11 @@ paste, and watch each submission report progress and errors as it runs.
 
 MIT licensed. Runs on your machine or in a container. No account, no third party.
 
+![Recent runs](https://raw.githubusercontent.com/dawid-ai/indexnow-tool/main/docs/images/recent-runs.png)
+
+*Every run is recorded. Run #10 re-submitted the same sitemap and sent only the 112
+URLs that were new, skipping 1,465 already accepted.*
+
 ---
 
 ## What is IndexNow?
@@ -74,6 +79,8 @@ sites, is the part that gets tedious — and that is what this handles.
   and drops straight into cron or Task Scheduler.
 
 ### URL sources
+
+![New run](https://raw.githubusercontent.com/dawid-ai/indexnow-tool/main/docs/images/new-run.png)
 
 | Source | Notes |
 | --- | --- |
