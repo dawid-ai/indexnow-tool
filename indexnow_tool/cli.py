@@ -8,7 +8,7 @@ import time
 import uvicorn
 
 from .config import clean_endpoint, load_config, normalize_host, validate_project_fields
-from .ports import find_free_port
+from .ports import DEFAULT_HOST, find_free_port
 from .service import IndexNowService, RunRequest
 from .ui import create_app
 
@@ -71,8 +71,8 @@ def _build_parser() -> argparse.ArgumentParser:
     verify = sub.add_parser("verify-key", help="Check the key file is reachable and correct")
     verify.add_argument("--project", required=True)
 
-    serve = sub.add_parser("serve", help="Start the local UI")
-    serve.add_argument("--host", default="127.0.0.1")
+    serve = sub.add_parser("serve", help="Start the local UI (the default command)")
+    serve.add_argument("--host", default=DEFAULT_HOST)
     serve.add_argument("--start-port", type=int, default=None)
 
     run = sub.add_parser("run", help="Submit URLs from a source")
@@ -104,9 +104,11 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
-    args = parser.parse_args()
+    # Bare `python main.py` starts the web UI; everything else needs a subcommand.
+    raw_args = sys.argv[1:] if argv is None else argv
+    args = parser.parse_args(raw_args or ["serve"])
     config = load_config()
     service = IndexNowService(config)
 
@@ -154,7 +156,9 @@ def main() -> None:
         app = create_app(config, service)
         start_port = args.start_port or config.default_ui_port
         selected_port = find_free_port(host=args.host, start_port=start_port)
-        print(f"IndexNow UI running on http://{args.host}:{selected_port}")
+        url = f"http://{args.host}:{selected_port}"
+        # Flush before uvicorn starts logging, so the URL is not buried mid-output.
+        print(f"\n  IndexNow UI:  {url}\n  Ctrl+C to stop.\n", flush=True)
         uvicorn.run(app, host=args.host, port=selected_port)
         return
 

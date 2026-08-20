@@ -16,7 +16,7 @@ Nothing here is deployed. It binds to `127.0.0.1` and there is no auth beyond th
 python -m venv .venv && .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 
-python main.py serve                 # start the local UI (auto-picks a free port)
+python main.py                       # start the local UI; `serve` is the default command
 python main.py projects              # list projects
 python main.py project-add --name demo --host www.example.com --key <key>
 python main.py verify-key --project demo
@@ -55,7 +55,11 @@ main.py -> indexnow_tool/cli.py ----\
   port and fragment) and rejects anything whose host is not the project host.
 - `service.py` — orchestration and the run lifecycle.
 - `indexnow_client.py` — the only place that talks to IndexNow, plus `verify_key_file`.
-- `ports.py` — scans upward for a free port.
+- `ports.py` — scans upward for a free port. It resolves the host through
+  `getaddrinfo` and probes every address, because `localhost` maps to both `::1` and
+  `127.0.0.1` and Windows browsers try the IPv6 one first. Serving only `127.0.0.1`
+  made the UI unreachable at `localhost`. Default host is `localhost` so uvicorn binds
+  both stacks; do not narrow it back to a single literal IP.
 - `ui.py` — FastAPI routes over Jinja2 templates in `indexnow_tool/templates/`.
 
 ## Invariants worth preserving

@@ -10,11 +10,16 @@ errors live. Every URL is tracked in SQLite so nothing gets submitted twice.
 python -m venv .venv
 .venv\Scripts\activate          # Windows; use source .venv/bin/activate elsewhere
 pip install -r requirements.txt
-python main.py serve
+python main.py
 ```
 
-The app picks a free port and prints the URL. Open it, go to **Projects & keys**,
-add a project, and press **Verify key** before your first run.
+That starts the web UI and prints its address, for example
+`http://localhost:8787`. If that port is taken it scans upward, so read the printed
+line. Open it, go to **Projects & keys**, add a project, and press **Verify key**
+before your first run.
+
+The server binds both `127.0.0.1` and `::1`, so `localhost` works whichever one your
+browser picks.
 
 ## Setting up a project
 
@@ -95,7 +100,7 @@ python main.py retry-failed --project demo --all
 python main.py mark-success --project demo --ids 12,13
 python main.py export --project demo --status failed > failed.csv
 
-python main.py serve --start-port 9000
+python main.py serve --start-port 9000     # explicit; bare `python main.py` is the same as `serve`
 ```
 
 `run` and `retry-failed` stream the same log the UI shows and exit non-zero if
