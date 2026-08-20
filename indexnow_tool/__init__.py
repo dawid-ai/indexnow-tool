@@ -1,0 +1,1 @@
+"""IndexNow automation tool package."""
