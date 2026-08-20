@@ -8,7 +8,8 @@ A local-only tool that submits URLs to the IndexNow API (generic endpoint or Bin
 direct), tracks every URL in SQLite so it only submits new ones, and exposes both a
 FastAPI web UI and an `argparse` CLI over the same service layer.
 
-Nothing here is deployed. It binds to `127.0.0.1` and there is no auth beyond that.
+Nothing here is deployed. It binds loopback only (`localhost`, meaning both
+`127.0.0.1` and `::1`) and there is no auth beyond that.
 
 ## Commands
 
