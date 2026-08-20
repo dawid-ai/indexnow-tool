@@ -36,7 +36,23 @@ def normalize_url(raw: str) -> str:
     )
 
 
-def validate_project_url(url: str, project_host: str) -> UrlValidationResult:
+def key_scope_prefix(key_location: str | None) -> str:
+    """Path prefix that a key file authorizes.
+
+    IndexNow scopes a key to the folder its file sits in: a key at
+    `https://example.com/catalog/key.txt` may only submit URLs under
+    `https://example.com/catalog/`. A key file at the root authorizes everything,
+    which is why the docs recommend putting it there.
+    """
+    if not key_location:
+        return "/"
+    path = urlparse(key_location).path or "/"
+    return path.rsplit("/", 1)[0] + "/"
+
+
+def validate_project_url(
+    url: str, project_host: str, key_scope: str = "/"
+) -> UrlValidationResult:
     normalized = normalize_url(url)
     if not normalized:
         return UrlValidationResult(url=url, is_valid=False, error="Empty URL")
@@ -55,5 +71,16 @@ def validate_project_url(url: str, project_host: str) -> UrlValidationResult:
             url=normalized,
             is_valid=False,
             error=f"Host mismatch: expected '{expected}', got '{host}'",
+        )
+
+    if key_scope != "/" and not (parsed.path or "/").startswith(key_scope):
+        return UrlValidationResult(
+            url=normalized,
+            is_valid=False,
+            error=(
+                f"Outside the folder the key file authorizes: your key file is in "
+                f"'{key_scope}', so only URLs under '{key_scope}' can be submitted. "
+                "Move the key file to the site root to cover the whole site."
+            ),
         )
     return UrlValidationResult(url=normalized, is_valid=True)

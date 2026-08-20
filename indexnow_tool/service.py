@@ -7,7 +7,7 @@ from typing import Iterable, Sequence
 from .config import AppConfig, ProjectConfig, import_projects_from_env
 from .db import Database
 from .indexnow_client import chunked, submit_url_batch, verify_key_file
-from .normalize import validate_project_url
+from .normalize import key_scope_prefix, validate_project_url
 from .sources import SourceError, parse_csv_bytes, parse_paste, parse_sitemap_url, parse_txt_bytes
 
 # One POST may legally carry 10,000 URLs, but smaller batches keep the progress
@@ -17,6 +17,10 @@ SUBMIT_BATCH = 1000
 
 # An invalid-URL list of 50k lines helps nobody; log a readable sample.
 MAX_LOGGED_INVALID = 50
+
+
+class KeyFileError(Exception):
+    """The key file could not be verified. Message is safe to show the user."""
 
 
 @dataclass(frozen=True)
@@ -102,12 +106,14 @@ class IndexNowService:
 
         raise SourceError(f"Unsupported source '{source_type}'.")
 
-    def _validate_urls(self, urls: Iterable[str], host: str) -> tuple[list[str], list[str]]:
+    def _validate_urls(
+        self, urls: Iterable[str], host: str, key_scope: str = "/"
+    ) -> tuple[list[str], list[str]]:
         valid: list[str] = []
         invalid: list[str] = []
         seen: set[str] = set()
         for url in urls:
-            result = validate_project_url(url, host)
+            result = validate_project_url(url, host, key_scope)
             if not result.is_valid:
                 invalid.append(f"{result.url or url} :: {result.error}")
                 continue
@@ -160,7 +166,16 @@ class IndexNowService:
             log("info", f"Source returned {len(source_urls)} URLs.")
 
             self.db.update_run(run_id, phase="validating")
-            valid_urls, invalid_details = self._validate_urls(source_urls, project.host)
+            key_scope = key_scope_prefix(project.key_location)
+            if key_scope != "/":
+                log(
+                    "warning",
+                    f"Key file is in '{key_scope}', so only URLs under '{key_scope}' "
+                    "can be submitted. Move it to the site root to cover everything.",
+                )
+            valid_urls, invalid_details = self._validate_urls(
+                source_urls, project.host, key_scope
+            )
             self.db.update_run(run_id, invalid_count=len(invalid_details))
             for detail in invalid_details[:MAX_LOGGED_INVALID]:
                 log("warning", f"Skipped invalid URL: {detail}")
@@ -182,11 +197,20 @@ class IndexNowService:
                 log("info", "Force mode on: previously accepted URLs are being resubmitted.")
 
             entries = self.db.get_entries_by_ids(entry_ids)
+
+            # Everything rejected and nothing left to send is a failed run, not a
+            # quiet success. Reporting it as completed hides the reason.
+            if not entries and invalid_details and skipped == 0:
+                raise SourceError(
+                    f"All {len(invalid_details)} URLs from this source were rejected "
+                    "before submitting. See the warnings above for the reason."
+                )
+
             self._submit_entries(run_id, project, endpoint, entries)
             self.db.finish_run(run_id, "completed")
             log("info", "Run finished.")
 
-        except SourceError as exc:
+        except (SourceError, KeyFileError) as exc:
             self._fail_run(run_id, str(exc))
         except ValueError as exc:
             self._fail_run(run_id, str(exc))
@@ -212,6 +236,19 @@ class IndexNowService:
         if total == 0:
             self.db.add_run_message(run_id, "info", "Nothing to submit: no new URLs in this source.")
             return
+
+        # Check the key file before sending anything. A wrong keyLocation otherwise
+        # surfaces only as a 422 from the API, after the URLs are already spent.
+        self.db.update_run(run_id, phase="verifying key")
+        key_ok, key_message = verify_key_file(project.host, project.key, project.key_location)
+        if not key_ok:
+            raise KeyFileError(
+                f"{key_message} "
+                "The search engine checks this file to confirm you own the host, so "
+                "nothing was submitted. Fix it on the Projects & keys page, then "
+                "press Verify key."
+            )
+        self.db.add_run_message(run_id, "info", key_message)
 
         self.db.add_run_message(
             run_id, "info", f"Submitting {total} URLs to the {endpoint} endpoint."
@@ -305,6 +342,8 @@ class IndexNowService:
                 )
             self._submit_entries(run_id, project, endpoint, entries)
             self.db.finish_run(run_id, "completed")
+        except KeyFileError as exc:
+            self._fail_run(run_id, str(exc))
         except Exception as exc:  # noqa: BLE001
             self._fail_run(run_id, f"{type(exc).__name__}: {exc}")
 

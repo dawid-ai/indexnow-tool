@@ -102,6 +102,17 @@ def validate_project_fields(
             if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                 errors.append(f"{label} must be a full http(s) URL.")
 
+    # A key file on another host proves nothing about this one, and IndexNow
+    # rejects every URL in the batch when it cannot verify ownership.
+    if key_location and key_location.strip():
+        key_host = (urlparse(key_location.strip()).hostname or "").lower()
+        wanted = normalize_host(host)
+        if key_host and wanted and key_host != wanted:
+            errors.append(
+                f"Key file URL must be on the project host. It points at "
+                f"'{key_host}' but the project host is '{wanted}'."
+            )
+
     return errors
 
 

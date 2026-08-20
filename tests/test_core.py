@@ -220,6 +220,46 @@ def test_rename_keeps_history_attached():
     assert len(db.get_entries_by_status("new", ["new"], None)) == 1
 
 
+def test_key_file_location_scopes_which_urls_may_be_submitted():
+    """A key in a subfolder only authorizes that subfolder.
+
+    Reproduces a real 422: the key file was configured at /public/<key>.txt while
+    every sitemap URL sat at the site root, so IndexNow rejected the whole batch
+    with "URLs are not related to your site verified through the keylocation
+    parameter". Catching it locally turns that into a readable message.
+    """
+    from indexnow_tool.normalize import key_scope_prefix
+
+    assert key_scope_prefix(None) == "/"
+    assert key_scope_prefix("https://ex.com/abc123.txt") == "/"
+    assert key_scope_prefix("https://ex.com/public/abc123.txt") == "/public/"
+    assert key_scope_prefix("https://ex.com/a/b/abc123.txt") == "/a/b/"
+
+    # Root key file: everything on the host is fair game.
+    assert validate_project_url("https://ex.com/anything", "ex.com", "/").is_valid
+
+    # Key file in /public/: only /public/ URLs qualify.
+    ok = validate_project_url("https://ex.com/public/page", "ex.com", "/public/")
+    assert ok.is_valid
+    bad = validate_project_url("https://ex.com/tools", "ex.com", "/public/")
+    assert not bad.is_valid
+    assert "/public/" in bad.error
+
+
+def test_key_file_must_live_on_the_project_host():
+    from indexnow_tool.config import validate_project_fields
+
+    same = validate_project_fields(
+        "p", "ex.com", "abcd1234efgh", "https://ex.com/abcd1234efgh.txt", None
+    )
+    assert same == [], same
+
+    other = validate_project_fields(
+        "p", "ex.com", "abcd1234efgh", "https://cdn.other.com/abcd1234efgh.txt", None
+    )
+    assert any("project host" in e for e in other), other
+
+
 def test_session_tokens_cannot_be_forged():
     from indexnow_tool.auth import (
         AuthConfig,

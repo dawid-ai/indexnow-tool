@@ -31,6 +31,12 @@ three moving parts:
    submission came from someone who controls the domain.
 3. **A POST.** Your host, your key, and a list of up to 10,000 changed URLs.
 
+Put the key file at your **site root**. Its folder decides what it authorizes: a key
+at `https://example.com/public/key.txt` can only submit URLs under
+`https://example.com/public/`, so a root-level key file is the only one that covers
+the whole site. This tool checks that rule before submitting and tells you which
+folder would work.
+
 Submit once and it reaches every participating engine — they share submissions with
 each other. You do not repeat the call per engine.
 
@@ -140,7 +146,12 @@ Requires Python 3.10 or newer.
 5. Go to **Submit**, pick the project and a source, and start a run.
 
 Step 4 is the one people skip. A missing or mismatched key file gives you a `403`,
-and in the worse case submissions look accepted and are silently ignored.
+and in the worse case submissions look accepted and are silently ignored. Every run
+re-checks it anyway and stops before submitting if it is wrong.
+
+Leave **Key file URL** empty unless the key file is somewhere other than the site
+root. Empty is correct for `https://www.example.com/<key>.txt`, and it is what you
+want in almost every case.
 
 ### What actually gets sent
 

@@ -93,6 +93,14 @@ These encode bugs that were fixed; changing them reintroduces the bug.
   on an upgraded database. Relying on one passes on a fresh schema and raises
   `IntegrityError` on every real install. `tests/test_core.py` builds a v1 database
   and migrates it; keep that test green for any schema change.
+- **A key file's folder scopes what it can submit.** IndexNow only trusts a key for
+  URLs under the directory holding the key file, so `key_location` of
+  `/public/key.txt` authorizes only `/public/*`. `normalize.key_scope_prefix`
+  derives that prefix and `validate_project_url` enforces it. Removing the check
+  turns a clear local message back into an opaque `422` from the API.
+- **The key file is verified before every submission**, in `_submit_entries`, so
+  both runs and retries are covered by one call. Failing there raises
+  `KeyFileError`, which the run wrapper reports as a failed run.
 - **`templates.TemplateResponse(request, name, context)`** — the old
   `(name, {"request": ...})` order was removed in Starlette 1.0. The deprecated
   form still works on older pinned versions, so this breaks only on fresh installs.
