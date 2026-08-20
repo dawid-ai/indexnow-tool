@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import traceback
@@ -10,8 +11,22 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
+from .auth import (
+    COOKIE_NAME,
+    FAILED_LOGIN_DELAY,
+    SESSION_MAX_AGE,
+    AuthConfig,
+    check_password,
+    issue_token,
+    load_auth_config,
+    token_is_valid,
+)
 from .config import AppConfig, clean_endpoint, normalize_host, validate_project_fields
 from .service import IndexNowService, RunRequest
+
+# Reachable without a session: the login form itself, and a health check so a
+# container orchestrator does not need credentials to see the app is alive.
+PUBLIC_PATHS = {"/login", "/healthz"}
 
 
 def _parse_ids(raw: str) -> list[int]:
@@ -31,19 +46,75 @@ def _redirect(path: str, **params: str) -> RedirectResponse:
     return RedirectResponse(f"{path}?{query}" if query else path, status_code=303)
 
 
-def create_app(config: AppConfig, service: IndexNowService | None = None) -> FastAPI:
-    app = FastAPI(title="IndexNow Tool")
+def create_app(
+    config: AppConfig,
+    service: IndexNowService | None = None,
+    auth: AuthConfig | None = None,
+) -> FastAPI:
+    app = FastAPI(title="IndexNow Tool", docs_url=None, redoc_url=None)
     service = service or IndexNowService(config)
+    auth = auth if auth is not None else load_auth_config()
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
-    def render(name: str, request: Request, **context) -> HTMLResponse:
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        if not auth.enabled or request.url.path in PUBLIC_PATHS:
+            return await call_next(request)
+        if token_is_valid(auth, request.cookies.get(COOKIE_NAME)):
+            return await call_next(request)
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+
+    @app.get("/healthz")
+    def healthz() -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_form(request: Request) -> HTMLResponse:
+        if not auth.enabled:
+            return _redirect("/")
         return templates.TemplateResponse(
+            request, "login.html", {"error": request.query_params.get("error")}
+        )
+
+    @app.post("/login")
+    async def login(password: str = Form("")):
+        if not auth.enabled:
+            return _redirect("/")
+        if not check_password(auth, password):
+            # Constant-time compare above; the delay is what makes guessing slow.
+            await asyncio.sleep(FAILED_LOGIN_DELAY)
+            return _redirect("/login", error="Wrong password.")
+        response = _redirect("/", notice="Signed in.")
+        response.set_cookie(
+            COOKIE_NAME,
+            issue_token(auth),
+            max_age=SESSION_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=auth.cookie_secure,
+        )
+        return response
+
+    @app.post("/logout")
+    def logout():
+        response = _redirect("/login")
+        response.delete_cookie(COOKIE_NAME)
+        return response
+
+    def render(name: str, request: Request, **context) -> HTMLResponse:
+        # Starlette 1.0 removed the old (name, context) argument order; request
+        # comes first now. Keep this signature or the app breaks on any current
+        # Starlette while still passing on an older pinned one.
+        return templates.TemplateResponse(
+            request,
             name,
             {
-                "request": request,
                 "projects": service.projects(),
                 "notice": request.query_params.get("notice"),
                 "error": request.query_params.get("error"),
+                "auth_enabled": auth.enabled,
                 **context,
             },
         )

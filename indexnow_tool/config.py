@@ -53,10 +53,23 @@ def normalize_host(raw: str) -> str:
     return value.split("/")[0].strip()
 
 
+def default_db_path() -> Path:
+    """Where the database lives when DB_PATH is not set.
+
+    Running from a checkout keeps it beside the code. An installed `indexnow`
+    command uses a fixed directory in $HOME instead, so the database does not
+    silently change with the working directory.
+    """
+    if Path(".env").exists() or Path("data").is_dir():
+        return Path("data/indexnow.db")
+    return Path.home() / ".indexnow" / "indexnow.db"
+
+
 def load_config() -> AppConfig:
     load_dotenv()
+    configured = os.getenv("DB_PATH", "").strip()
     return AppConfig(
-        db_path=Path(os.getenv("DB_PATH", "data/indexnow.db")),
+        db_path=Path(configured) if configured else default_db_path(),
         default_endpoint=clean_endpoint(os.getenv("DEFAULT_ENDPOINT"), "indexnow"),
         default_ui_port=int(os.getenv("DEFAULT_UI_PORT", "8787")),
     )

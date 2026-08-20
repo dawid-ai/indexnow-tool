@@ -1,0 +1,23 @@
+services:
+  indexnow:
+    build: .
+    image: indexnow-tool
+    restart: unless-stopped
+    environment:
+      # Required. The container listens on 0.0.0.0 and the app refuses to start
+      # without this, because it holds your IndexNow keys in plaintext.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?set AUTH_PASSWORD in .env or your shell}
+      # Optional: keeps sessions valid across restarts. Any long random string.
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      # Set to true when serving over HTTPS behind a reverse proxy.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      DEFAULT_ENDPOINT: ${DEFAULT_ENDPOINT:-indexnow}
+    ports:
+      # Loopback only by default. Change to "8787:8787" to expose it, and put a
+      # TLS-terminating reverse proxy in front before you do.
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - indexnow-data:/data
+
+volumes:
+  indexnow-data:

@@ -7,6 +7,7 @@ import time
 
 import uvicorn
 
+from .auth import load_auth_config, startup_warning
 from .config import clean_endpoint, load_config, normalize_host, validate_project_fields
 from .ports import DEFAULT_HOST, find_free_port
 from .service import IndexNowService, RunRequest
@@ -153,12 +154,24 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if args.command == "serve":
-        app = create_app(config, service)
+        auth = load_auth_config()
+        refusal = startup_warning(auth, args.host)
+        if refusal:
+            raise SystemExit(refusal)
+
+        app = create_app(config, service, auth)
         start_port = args.start_port or config.default_ui_port
         selected_port = find_free_port(host=args.host, start_port=start_port)
         url = f"http://{args.host}:{selected_port}"
+        access = "password protected" if auth.enabled else "no password (loopback only)"
         # Flush before uvicorn starts logging, so the URL is not buried mid-output.
-        print(f"\n  IndexNow UI:  {url}\n  Ctrl+C to stop.\n", flush=True)
+        print(
+            f"\n  IndexNow UI:  {url}"
+            f"\n  Database:     {config.db_path}"
+            f"\n  Access:       {access}"
+            f"\n  Ctrl+C to stop.\n",
+            flush=True,
+        )
         uvicorn.run(app, host=args.host, port=selected_port)
         return
 

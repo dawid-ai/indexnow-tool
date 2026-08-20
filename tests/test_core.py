@@ -220,6 +220,57 @@ def test_rename_keeps_history_attached():
     assert len(db.get_entries_by_status("new", ["new"], None)) == 1
 
 
+def test_session_tokens_cannot_be_forged():
+    from indexnow_tool.auth import (
+        AuthConfig,
+        SESSION_MAX_AGE,
+        check_password,
+        issue_token,
+        is_loopback,
+        startup_warning,
+        token_is_valid,
+    )
+
+    config = AuthConfig(password="hunter2", secret=b"server-secret", cookie_secure=False)
+    token = issue_token(config, now=1000)
+
+    assert token_is_valid(config, token, now=1000)
+    assert token_is_valid(config, token, now=1000 + SESSION_MAX_AGE - 1)
+    assert not token_is_valid(config, token, now=1000 + SESSION_MAX_AGE + 1), "expired"
+
+    # A token signed with a different secret must not verify.
+    other = AuthConfig(password="hunter2", secret=b"other-secret", cookie_secure=False)
+    assert not token_is_valid(config, issue_token(other, now=1000))
+
+    for forged in (None, "", "garbage", "1000.", "1000.deadbeef", ".", "notanumber.x"):
+        assert not token_is_valid(config, forged), forged
+
+    assert check_password(config, "hunter2")
+    assert not check_password(config, "Hunter2")
+    assert not check_password(config, "")
+    # With no password configured nothing authenticates.
+    assert not check_password(AuthConfig(None, b"s", False), "")
+
+    assert is_loopback("localhost") and is_loopback("127.0.0.1") and is_loopback("::1")
+    assert not is_loopback("0.0.0.0") and not is_loopback("192.168.1.10")
+
+
+def test_open_instance_refuses_to_serve_the_network():
+    from indexnow_tool.auth import AuthConfig, startup_warning
+
+    no_password = AuthConfig(password=None, secret=b"s", cookie_secure=False)
+    with_password = AuthConfig(password="pw", secret=b"s", cookie_secure=False)
+
+    # Loopback without a password is fine; that is the local-tool case.
+    assert startup_warning(no_password, "localhost") is None
+    assert startup_warning(no_password, "127.0.0.1") is None
+    # Anything reachable from the network without a password must not start.
+    for host in ("0.0.0.0", "192.168.1.10", "::"):
+        assert startup_warning(no_password, host) is not None, host
+    # A password makes any bind address acceptable.
+    assert startup_warning(with_password, "0.0.0.0") is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

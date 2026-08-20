@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in — IndexNow Tool</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Arial, sans-serif; background: #f7f7f8; color: #1c1c1c;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .box { background: #fff; border: 1px solid #dcdcdc; border-radius: 8px; padding: 28px; width: 340px; }
+    h1 { font-size: 18px; margin: 0 0 6px; }
+    p.sub { color: #5b5b5b; font-size: 13px; margin: 0 0 18px; }
+    label { display: block; font-weight: 600; font-size: 13px; margin-bottom: 4px; }
+    input { width: 100%; padding: 9px; border: 1px solid #dcdcdc; border-radius: 5px; font: inherit; box-sizing: border-box; }
+    button { width: 100%; margin-top: 14px; padding: 10px; border: 0; border-radius: 5px;
+             background: #1c1c1c; color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; }
+    button:hover { background: #383838; }
+    .flash { background: #fff1f1; border: 1px solid #e7a4a4; color: #8f1d1d;
+             padding: 9px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <form class="box" action="/login" method="post">
+    <h1>IndexNow</h1>
+    <p class="sub">This instance is password protected.</p>
+    {% if error %}<div class="flash">{{ error }}</div>{% endif %}
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus autocomplete="current-password" required />
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>

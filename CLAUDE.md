@@ -8,8 +8,12 @@ A local-only tool that submits URLs to the IndexNow API (generic endpoint or Bin
 direct), tracks every URL in SQLite so it only submits new ones, and exposes both a
 FastAPI web UI and an `argparse` CLI over the same service layer.
 
-Nothing here is deployed. It binds loopback only (`localhost`, meaning both
-`127.0.0.1` and `::1`) and there is no auth beyond that.
+It binds `localhost` (both `127.0.0.1` and `::1`) by default. Off loopback it
+requires `AUTH_PASSWORD` and refuses to start without it, because the database
+holds IndexNow keys in plaintext.
+
+Published as MIT on PyPI (`indexnow-tool`, console script `indexnow`) and as a
+container image. `main.py` stays as the source-checkout entry point.
 
 ## Commands
 
@@ -61,7 +65,12 @@ main.py -> indexnow_tool/cli.py ----\
   `127.0.0.1` and Windows browsers try the IPv6 one first. Serving only `127.0.0.1`
   made the UI unreachable at `localhost`. Default host is `localhost` so uvicorn binds
   both stacks; do not narrow it back to a single literal IP.
+- `auth.py` — single shared password, signed cookie over stdlib `hmac`. No new
+  dependency and no session store, so multiple workers are possible as long as
+  `AUTH_SECRET` is set. `startup_warning` is the refuse-to-start guard.
 - `ui.py` — FastAPI routes over Jinja2 templates in `indexnow_tool/templates/`.
+  A middleware gates everything except `PUBLIC_PATHS` (`/login`, `/healthz`);
+  `/api/*` gets a 401, everything else a redirect to the login page.
 
 ## Invariants worth preserving
 
@@ -79,6 +88,14 @@ These encode bugs that were fixed; changing them reintroduces the bug.
 - **Sitemap type is decided by the root element** (`sitemapindex` vs `urlset`), not
   by pattern-matching the link text. Guessing dropped every page URL in a sitemap
   that contained a link with "sitemap" in it.
+- **Every column is written explicitly on insert.** `CREATE TABLE IF NOT EXISTS`
+  never revises an existing table, so a column default added later does not exist
+  on an upgraded database. Relying on one passes on a fresh schema and raises
+  `IntegrityError` on every real install. `tests/test_core.py` builds a v1 database
+  and migrates it; keep that test green for any schema change.
+- **`templates.TemplateResponse(request, name, context)`** — the old
+  `(name, {"request": ...})` order was removed in Starlette 1.0. The deprecated
+  form still works on older pinned versions, so this breaks only on fresh installs.
 
 ## Run lifecycle and live progress
 
@@ -112,7 +129,10 @@ marks any leftover `running` row as `interrupted` at startup.
 ## Constraints
 
 - Never commit `.env` or `data/*.db` — both are gitignored. The database holds live
-  IndexNow keys for real hosts.
+  IndexNow keys for real hosts. This is a public repository; audit history before
+  pushing anything that touched a real key.
+- Dependencies are unpinned in `pyproject.toml` and CI installs the latest, on
+  purpose: a breaking upstream change should fail CI rather than users' installs.
 - Don't run submission commands against real projects while testing. `run`,
   `retry-failed`, and a form POST from `serve` all hit the live IndexNow API. Use
   `projects`, `status`, and `export` for read-only checks, and stub

@@ -59,6 +59,11 @@
       <span class="brand">IndexNow</span>
       <a href="/" class="{{ 'active' if active_page == 'dashboard' }}">Submit</a>
       <a href="/projects" class="{{ 'active' if active_page == 'projects' }}">Projects &amp; keys</a>
+      {% if auth_enabled %}
+      <form action="/logout" method="post" style="margin-left:auto">
+        <button type="submit" style="margin:0; background:transparent; color:#d6d6d6; font-size:14px; padding:14px;">Sign out</button>
+      </form>
+      {% endif %}
     </div>
   </nav>
   <div class="wrap">
