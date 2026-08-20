@@ -4,11 +4,12 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9-]{8,128}$")
+ENDPOINT_CHOICES = ("indexnow", "bing")
 
 
 @dataclass(frozen=True)
@@ -20,70 +21,113 @@ class ProjectConfig:
     sitemap_url: str | None
     default_endpoint: str
 
+    @classmethod
+    def from_row(cls, row) -> "ProjectConfig":
+        return cls(
+            name=row["name"],
+            host=row["host"],
+            key=row["key"],
+            key_location=row["key_location"],
+            sitemap_url=row["sitemap_url"],
+            default_endpoint=row["default_endpoint"],
+        )
+
 
 @dataclass(frozen=True)
 class AppConfig:
-    projects: Dict[str, ProjectConfig]
     db_path: Path
     default_endpoint: str
     default_ui_port: int
 
 
-def _env_name(project_name: str, suffix: str) -> str:
-    return f"PROJECT_{project_name.upper()}_{suffix}"
+def clean_endpoint(value: str | None, fallback: str = "indexnow") -> str:
+    candidate = (value or "").strip().lower()
+    return candidate if candidate in ENDPOINT_CHOICES else fallback
 
 
-def _clean_endpoint(value: str | None, fallback: str) -> str:
-    candidate = (value or fallback).strip().lower()
-    if candidate not in {"indexnow", "bing"}:
-        return fallback
-    return candidate
+def normalize_host(raw: str) -> str:
+    """Accept a bare host or a pasted URL and return the bare lowercase host."""
+    value = (raw or "").strip().lower().rstrip("/")
+    if "//" in value:
+        value = urlparse(value).netloc or value
+    return value.split("/")[0].strip()
 
 
 def load_config() -> AppConfig:
     load_dotenv()
+    return AppConfig(
+        db_path=Path(os.getenv("DB_PATH", "data/indexnow.db")),
+        default_endpoint=clean_endpoint(os.getenv("DEFAULT_ENDPOINT"), "indexnow"),
+        default_ui_port=int(os.getenv("DEFAULT_UI_PORT", "8787")),
+    )
 
-    default_endpoint = _clean_endpoint(os.getenv("DEFAULT_ENDPOINT"), "indexnow")
-    db_path = Path(os.getenv("DB_PATH", "data/indexnow.db"))
-    default_ui_port = int(os.getenv("DEFAULT_UI_PORT", "8787"))
 
-    project_names = [p.strip() for p in os.getenv("PROJECTS", "").split(",") if p.strip()]
-    projects: Dict[str, ProjectConfig] = {}
+def validate_project_fields(
+    name: str, host: str, key: str, key_location: str | None, sitemap_url: str | None
+) -> list[str]:
+    """Return human-readable problems with a project definition, empty if valid."""
+    errors: list[str] = []
 
-    for project_name in project_names:
-        host = os.getenv(_env_name(project_name, "HOST"), "").strip().lower()
-        key = os.getenv(_env_name(project_name, "KEY"), "").strip()
-        key_location = os.getenv(_env_name(project_name, "KEY_LOCATION"), "").strip() or None
-        sitemap_url = os.getenv(_env_name(project_name, "SITEMAP_URL"), "").strip() or None
-        project_endpoint = _clean_endpoint(
-            os.getenv(_env_name(project_name, "DEFAULT_ENDPOINT")), default_endpoint
-        )
+    if not name.strip():
+        errors.append("Name is required.")
+    elif not re.fullmatch(r"[A-Za-z0-9._-]{1,64}", name.strip()):
+        errors.append("Name may only contain letters, numbers, dot, dash, underscore (max 64).")
 
-        if not host:
-            raise ValueError(f"Missing host for project '{project_name}'")
-        if not key:
-            raise ValueError(f"Missing key for project '{project_name}'")
-        if not KEY_PATTERN.fullmatch(key):
-            raise ValueError(
-                f"Invalid key format for project '{project_name}'. "
-                "Expected 8-128 chars: A-Z a-z 0-9 -"
-            )
+    if not host.strip():
+        errors.append("Host is required, for example www.example.com")
+    elif "." not in normalize_host(host):
+        errors.append(f"Host '{host}' does not look like a domain.")
 
-        projects[project_name] = ProjectConfig(
-            name=project_name,
+    if not key.strip():
+        errors.append("Key is required.")
+    elif not KEY_PATTERN.fullmatch(key.strip()):
+        errors.append("Key must be 8-128 characters using only A-Z a-z 0-9 and dash.")
+
+    for label, value in (("Key location", key_location), ("Sitemap URL", sitemap_url)):
+        if value and value.strip():
+            parsed = urlparse(value.strip())
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                errors.append(f"{label} must be a full http(s) URL.")
+
+    return errors
+
+
+def import_projects_from_env(db) -> list[str]:
+    """Seed the projects table from legacy PROJECTS/PROJECT_<NAME>_* variables.
+
+    Runs on every startup but only adds names that do not exist yet, so the .env
+    file stays a valid source without ever overwriting edits made in the UI.
+    """
+    load_dotenv()
+    raw_names = [p.strip() for p in os.getenv("PROJECTS", "").split(",") if p.strip()]
+    if not raw_names:
+        return []
+
+    existing = {row["name"] for row in db.list_projects()}
+    imported: list[str] = []
+    fallback_endpoint = clean_endpoint(os.getenv("DEFAULT_ENDPOINT"), "indexnow")
+
+    for name in raw_names:
+        if name in existing:
+            continue
+        prefix = f"PROJECT_{name.upper()}_"
+        host = normalize_host(os.getenv(prefix + "HOST", ""))
+        key = os.getenv(prefix + "KEY", "").strip()
+        if not host or not key:
+            continue
+        if validate_project_fields(name, host, key, None, None):
+            continue
+
+        db.upsert_project(
+            name=name,
             host=host,
             key=key,
-            key_location=key_location,
-            sitemap_url=sitemap_url,
-            default_endpoint=project_endpoint,
+            key_location=(os.getenv(prefix + "KEY_LOCATION", "").strip() or None),
+            sitemap_url=(os.getenv(prefix + "SITEMAP_URL", "").strip() or None),
+            default_endpoint=clean_endpoint(
+                os.getenv(prefix + "DEFAULT_ENDPOINT"), fallback_endpoint
+            ),
         )
+        imported.append(name)
 
-    if not projects:
-        raise ValueError("No projects configured. Add PROJECTS and PROJECT_<NAME>_* variables to .env")
-
-    return AppConfig(
-        projects=projects,
-        db_path=db_path,
-        default_endpoint=default_endpoint,
-        default_ui_port=default_ui_port,
-    )
+    return imported

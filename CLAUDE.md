@@ -16,17 +16,20 @@ Nothing here is deployed. It binds to `127.0.0.1` and there is no auth beyond th
 python -m venv .venv && .venv\Scripts\activate   # Windows
 pip install -r requirements.txt
 
-python main.py serve                 # start the local UI (auto-picks a free port from DEFAULT_UI_PORT)
-python main.py projects              # list configured projects
+python main.py serve                 # start the local UI (auto-picks a free port)
+python main.py projects              # list projects
+python main.py project-add --name demo --host www.example.com --key <key>
+python main.py verify-key --project demo
 python main.py status                # last 20 runs as JSON
-python main.py run --project demo --source sitemap --sitemap-url https://example.com/sitemap.xml
-python main.py run --project demo --source txt --file urls.txt --endpoint bing
-python main.py retry-failed --project demo [--ids 12,13]
-python main.py mark-success --project demo [--ids 12,13]
+python main.py run --project demo --source sitemap [--force]
+python main.py retry-failed --project demo (--ids 12,13 | --all)
+python main.py mark-success --project demo (--ids 12,13 | --all)
+python main.py export --project demo --status failed
+
+python tests/test_core.py            # or: pytest
 ```
 
-There is no test suite and no linter config. If you add tests, use `pytest` and put
-them in `tests/`.
+There is no linter config.
 
 ## Architecture
 
@@ -38,49 +41,81 @@ main.py -> indexnow_tool/cli.py ----\
            indexnow_tool/ui.py -----/                              \-> indexnow_client (httpx POST)
 ```
 
-- `config.py` — reads `.env` via `python-dotenv` into frozen dataclasses (`AppConfig`,
-  `ProjectConfig`). Validates key format and fails fast at startup on a bad or missing
-  project. Every entry point calls `load_config()` first.
-- `sources.py` — turns a sitemap URL, TXT bytes, CSV bytes, or pasted text into a list
-  of URLs. Sitemap parsing follows nested sitemap indexes up to `max_depth=2`.
-- `normalize.py` — strips the fragment, then rejects any URL whose scheme isn't
-  http/https or whose host doesn't match the project host. IndexNow requires host
-  consistency, so this check is not optional.
-- `service.py` — orchestration. `run_from_source` validates, dedupes in-memory, upserts
-  into SQLite (existing hashes are skipped, not resubmitted), submits only `new`
-  entries, then records a run plus per-URL items. `retry_failed` and
-  `mark_failed_success` reuse the same submission path.
-- `indexnow_client.py` — the only place that talks to IndexNow. Batches at 10,000 URLs,
-  treats 200/202 as success, retries 429 honoring `Retry-After` and retries transport
-  errors, up to `max_retries=3`.
-- `db.py` — schema-on-connect SQLite. Three tables: `url_entries` (unique on
-  `project_name + url_hash`), `submission_runs`, `submission_items`. Statuses are
-  `new`, `submitted`, `failed`, `manually_marked_success`.
-- `ports.py` — scans upward from the start port for a free one so a stale server never
-  blocks a new run.
-- `ui.py` — FastAPI routes rendering Jinja2 templates in `indexnow_tool/templates/`.
+- `config.py` — app settings from `.env` (`DB_PATH`, `DEFAULT_ENDPOINT`,
+  `DEFAULT_UI_PORT`). Also holds `validate_project_fields`, shared by the UI form and
+  the CLI, and `import_projects_from_env`, which seeds the projects table from legacy
+  `PROJECT_<NAME>_*` variables without ever overwriting a project that exists.
+- `db.py` — schema-on-connect SQLite plus additive column migrations in `_migrate`.
+  Tables: `projects`, `url_entries` (unique on `project_name + url_hash`),
+  `submission_runs`, `submission_items`, `run_messages`. Entry statuses are `new`,
+  `submitted`, `failed`, `manually_marked_success`.
+- `sources.py` — sitemap URL, TXT, CSV, or paste into a URL list. Raises `SourceError`
+  with a message that is safe to show the user.
+- `normalize.py` — canonicalizes a URL (lowercase scheme and host, drop the default
+  port and fragment) and rejects anything whose host is not the project host.
+- `service.py` — orchestration and the run lifecycle.
+- `indexnow_client.py` — the only place that talks to IndexNow, plus `verify_key_file`.
+- `ports.py` — scans upward for a free port.
+- `ui.py` — FastAPI routes over Jinja2 templates in `indexnow_tool/templates/`.
+
+## Invariants worth preserving
+
+These encode bugs that were fixed; changing them reintroduces the bug.
+
+- **An empty id list means "nothing", never "everything."**
+  `db.get_entries_by_status(..., ids=[])` returns `[]` while `ids=None` returns all.
+  The UI and CLI both require an explicit "all" scope. This is what stops an empty
+  selection from retrying or force-closing a whole project.
+- **Dedupe is by canonical hash, not raw string.** `normalize_url` runs before
+  `url_hash`, so case and default-port variants collapse to one entry.
+- **Only `submitted` and `manually_marked_success` block resubmission**
+  (`db.ACTIVE_STATUSES`). A `new` entry stranded by an interrupted run is picked up
+  by the next run of the same source; `force=True` overrides the skip entirely.
+- **Sitemap type is decided by the root element** (`sitemapindex` vs `urlset`), not
+  by pattern-matching the link text. Guessing dropped every page URL in a sitemap
+  that contained a link with "sitemap" in it.
+
+## Run lifecycle and live progress
+
+`service.start_run` creates the run row with `status='running'`, then executes it on
+a daemon thread and returns immediately; `run_from_source` does the same inline for
+the CLI. Both funnel into `_execute_source_run`, which:
+
+1. Updates `phase` at each step and appends to `run_messages` as it goes.
+2. Catches every exception and calls `_fail_run`, so a failure lands in the run row
+   and the log rather than as a 500 or a traceback.
+
+`service.progress(run_id, after_message_id)` is the single read model. `/api/runs/{id}`
+serves it as JSON, `templates/run.html` polls it, and the CLI's `_follow_run` prints
+it. Add new progress information there and all three surfaces get it.
+
+Because a run lives on a thread, a process restart can strand one. `db._migrate`
+marks any leftover `running` row as `interrupted` at startup.
 
 ## Conventions
 
-- `from __future__ import annotations` at the top of every module; PEP 604 unions
-  (`str | None`).
-- Frozen dataclasses for config and result objects.
+- `from __future__ import annotations` at the top of every module; PEP 604 unions.
+- Frozen dataclasses for config and request objects.
 - Business logic goes in `service.py`. Keep `cli.py` and `ui.py` to argument parsing,
   request handling, and output formatting so both stay in sync.
-- Anything touching the IndexNow protocol (endpoints, batch size, success codes, retry
-  rules) belongs in `indexnow_client.py`.
+- Anything touching the IndexNow protocol (endpoints, batch size, success codes,
+  retry rules, status meanings) belongs in `indexnow_client.py`.
+- All writes go through `db.py`, which serializes them behind `self._lock` because
+  FastAPI handlers and the run thread share one connection.
+- New templates extend `templates/base.html`.
 
 ## Constraints
 
-- Never commit `.env` or `data/*.db` — both are gitignored. `.env` holds live IndexNow
-  keys for real hosts.
+- Never commit `.env` or `data/*.db` — both are gitignored. The database holds live
+  IndexNow keys for real hosts.
 - Don't run submission commands against real projects while testing. `run`,
-  `retry-failed`, and `serve` + a form POST all hit the live IndexNow API and write to
-  SQLite. Use `projects` and `status` for read-only checks.
-- The `Database` connection is shared with `check_same_thread=False` because FastAPI
-  handlers run in worker threads. Writes commit immediately; there is no pooling.
+  `retry-failed`, and a form POST from `serve` all hit the live IndexNow API. Use
+  `projects`, `status`, and `export` for read-only checks, and stub
+  `service.submit_url_batch` to exercise the run pipeline offline.
+- `verify-key` makes an outbound GET to the project host. Harmless, but it is a
+  network call.
 
 ## Reference
 
 - Design spec: `docs/superpowers/specs/2026-05-08-indexnow-bing-automation-design.md`
-- Full `.env` reference and examples: `README.md`
+- User-facing setup and usage: `README.md`

@@ -1,192 +1,208 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>IndexNow Tool</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 24px; max-width: 1100px; }
-    label { display: block; margin-top: 10px; font-weight: 600; }
-    input, select, textarea { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; }
-    input[type="checkbox"], input[type="radio"] { width: auto; margin-top: 0; }
-    button { margin-top: 14px; padding: 8px 14px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; padding: 8px; font-size: 14px; }
-    th { background: #f6f6f6; text-align: left; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 14px; background: #fff; }
-    .scope-box { border: 1px solid #e4e4e4; border-radius: 6px; padding: 10px; margin-top: 10px; }
-    .scope-box legend { font-weight: 700; }
-    .inline-option { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-weight: 400; }
-    .hint { color: #555; font-size: 13px; margin-top: 6px; }
-    .status-pill { padding: 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; display: inline-block; }
-    .pill-sent { background: #eefaf0; color: #1f6e38; border: 1px solid #90d7a3; }
-    .pill-skipped { background: #fff8e9; color: #8c5a00; border: 1px solid #f0ce8a; }
-    .pill-failed { background: #fff1f1; color: #8f1d1d; border: 1px solid #e7a4a4; }
-  </style>
-</head>
-<body>
-  <h1>IndexNow Automation</h1>
+{% extends "base.html" %}
+{% set active_page = 'dashboard' %}
+{% block title %}Submit URLs — IndexNow Tool{% endblock %}
 
-  <div class="grid">
+{% block content %}
+<h1>Submit URLs</h1>
+<p class="sub">Pick a project, choose where the URLs come from, and watch the run live.</p>
+
+{% if not projects %}
+<div class="card">
+  <h2>No projects yet</h2>
+  <p class="sub">Add a project with its host and IndexNow key before submitting anything.</p>
+  <a href="/projects"><button>Add your first project</button></a>
+</div>
+{% else %}
+
+<div class="grid">
+  <section class="card">
+    <h2>New run</h2>
+    <form action="/run" method="post" enctype="multipart/form-data">
+      <label for="project">Project</label>
+      <select id="project" name="project" required>
+        {% for name, cfg in projects.items() %}
+        <option value="{{ name }}">{{ name }} — {{ cfg.host }}</option>
+        {% endfor %}
+      </select>
+
+      <label for="endpoint">Endpoint</label>
+      <select id="endpoint" name="endpoint">
+        <option value="indexnow">IndexNow global (api.indexnow.org)</option>
+        <option value="bing">Bing direct (bing.com/indexnow)</option>
+      </select>
+      <p class="hint">Leave on global unless you specifically want Bing only. Both feed the same network.</p>
+
+      <label for="source_type">URL source</label>
+      <select id="source_type" name="source_type" required>
+        <option value="sitemap">Sitemap URL (follows sitemap indexes)</option>
+        <option value="txt">TXT file (one URL per line)</option>
+        <option value="csv">CSV file (first column)</option>
+        <option value="paste">Paste URLs</option>
+      </select>
+
+      <div data-source="sitemap">
+        <label for="sitemap_url">Sitemap URL</label>
+        <input type="url" id="sitemap_url" name="sitemap_url" placeholder="https://www.example.com/sitemap.xml" />
+        <p class="hint">Leave empty to use the sitemap saved on the project. <code>.xml.gz</code> works too.</p>
+      </div>
+
+      <div data-source="txt csv" hidden>
+        <label for="file">Upload file</label>
+        <input type="file" id="file" name="file" accept=".txt,.csv,text/plain,text/csv" />
+      </div>
+
+      <div data-source="paste" hidden>
+        <label for="pasted_urls">URLs, one per line</label>
+        <textarea id="pasted_urls" name="pasted_urls" rows="8" placeholder="https://www.example.com/page-a&#10;https://www.example.com/page-b"></textarea>
+      </div>
+
+      <label class="inline">
+        <input type="checkbox" name="force" value="true" />
+        Resubmit URLs that were already accepted
+      </label>
+      <p class="hint">Off by default. Known-good URLs are skipped so you do not spam the API with duplicates.</p>
+
+      <button type="submit">Start run</button>
+    </form>
+  </section>
+
+  <div>
     <section class="card">
-      <h2>Run Submission</h2>
-      <form action="/run" method="post" enctype="multipart/form-data">
-        <label>Project</label>
-        <select name="project" required>
-          {% for name, cfg in projects.items() %}
-          <option value="{{ name }}">{{ name }} ({{ cfg.host }})</option>
-          {% endfor %}
-        </select>
-
-        <label>Endpoint</label>
-        <select name="endpoint">
-          <option value="indexnow">IndexNow global (default)</option>
-          <option value="bing">Bing direct</option>
-        </select>
-
-        <label>Source Type</label>
-        <select name="source_type" required>
-          <option value="sitemap">Sitemap URL</option>
-          <option value="txt">TXT file (one URL per line)</option>
-          <option value="csv">CSV file (first column)</option>
-          <option value="paste">Direct paste</option>
-        </select>
-
-        <label>Sitemap URL (leave empty to use project default)</label>
-        <input type="url" name="sitemap_url" placeholder="https://example.com/sitemap.xml" />
-
-        <label>Upload file (.txt or .csv)</label>
-        <input type="file" name="file" />
-
-        <label>Direct paste (one URL per line)</label>
-        <textarea name="pasted_urls" rows="8"></textarea>
-
-        <button type="submit">Run</button>
-      </form>
-    </section>
-
-    <section class="card">
-      <h2>Project Summary</h2>
+      <h2>Projects</h2>
       <table>
         <thead>
-          <tr><th>Project</th><th>Total URLs</th><th>Failed URLs</th></tr>
+          <tr><th>Project</th><th class="num">Total</th><th class="num">Sent</th><th class="num">Failed</th><th class="num">Pending</th><th></th></tr>
         </thead>
         <tbody>
-          {% for row in summaries %}
+          {% for name, cfg in projects.items() %}
+          {% set s = summaries | selectattr('project_name', 'equalto', name) | first %}
           <tr>
-            <td>{{ row.project_name }}</td>
-            <td>{{ row.total_urls }}</td>
-            <td>{{ row.failed_urls or 0 }}</td>
+            <td><strong>{{ name }}</strong><br /><span class="hint">{{ cfg.host }}</span></td>
+            <td class="num">{{ s.total_urls if s else 0 }}</td>
+            <td class="num">{{ (s.submitted_urls or 0) if s else 0 }}</td>
+            <td class="num">{{ (s.failed_urls or 0) if s else 0 }}</td>
+            <td class="num">{{ (s.pending_urls or 0) if s else 0 }}</td>
+            <td class="row-actions">
+              <a href="/projects/{{ name }}/failed"><button type="button" class="secondary small">Failed</button></a>
+              <a href="/projects/{{ name }}/export.csv"><button type="button" class="secondary small">CSV</button></a>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </section>
-  </div>
 
-  <h2>Failed URL Actions</h2>
-  <div class="grid">
     <section class="card">
-      <h3>Retry Failed URLs</h3>
+      <h2>Failed URL actions</h2>
       <form action="/failed/retry" method="post">
-        <label>Project</label>
-        <select name="project" required>
+        <h3>Retry failed</h3>
+        <label for="retry_project">Project</label>
+        <select id="retry_project" name="project" required>
           {% for name, cfg in projects.items() %}
-          <option value="{{ name }}">{{ name }} ({{ cfg.host }})</option>
+          <option value="{{ name }}">{{ name }} — {{ cfg.host }}</option>
           {% endfor %}
         </select>
 
-        <label>Endpoint</label>
-        <select name="endpoint">
-          <option value="indexnow">IndexNow global (default)</option>
+        <label for="retry_endpoint">Endpoint</label>
+        <select id="retry_endpoint" name="endpoint">
+          <option value="indexnow">IndexNow global</option>
           <option value="bing">Bing direct</option>
         </select>
 
-        <label>Selected IDs (optional, comma separated)</label>
-        <input type="text" name="selected_ids" placeholder="12,17,24" />
-        <p class="hint">Leave IDs empty when using "All failed URLs".</p>
-
-        <fieldset class="scope-box">
-          <legend>Retry scope</legend>
-          <label class="inline-option">
-            <input type="radio" name="all_failed" value="true" checked />
-            All failed URLs in this project
-          </label>
-          <label class="inline-option">
-            <input type="radio" name="all_failed" value="false" />
-            Only IDs listed above
-          </label>
+        <fieldset class="scope">
+          <legend>Scope</legend>
+          <label class="inline"><input type="radio" name="scope" value="selected" checked /> Only the ids below</label>
+          <label class="inline"><input type="radio" name="scope" value="all" /> All failed URLs in this project</label>
         </fieldset>
 
-        <button type="submit">Retry Failed</button>
-      </form>
-    </section>
+        <label for="retry_ids">URL ids</label>
+        <input type="text" id="retry_ids" name="selected_ids" placeholder="12, 17, 24" />
+        <p class="hint">Ids come from the Failed list. An empty box with "Only the ids below" does nothing.</p>
 
-    <section class="card">
-      <h3>Mark Failed as Successful</h3>
-      <form action="/failed/mark-success" method="post">
-        <label>Project</label>
-        <select name="project" required>
+        <button type="submit">Retry failed</button>
+      </form>
+
+      <hr style="margin: 22px 0; border: 0; border-top: 1px solid var(--line);" />
+
+      <form action="/failed/mark-success" method="post" onsubmit="return confirm('Mark these failed URLs as successful? They will no longer be retried or resubmitted.');">
+        <h3>Mark failed as successful</h3>
+        <p class="hint">Use when you confirmed indexing happened another way. This only changes local bookkeeping.</p>
+        <label for="mark_project">Project</label>
+        <select id="mark_project" name="project" required>
           {% for name, cfg in projects.items() %}
-          <option value="{{ name }}">{{ name }} ({{ cfg.host }})</option>
+          <option value="{{ name }}">{{ name }} — {{ cfg.host }}</option>
           {% endfor %}
         </select>
 
-        <label>Selected IDs (optional, comma separated)</label>
-        <input type="text" name="selected_ids" placeholder="12,17,24" />
-        <p class="hint">Leave IDs empty when using "All failed URLs".</p>
-
-        <fieldset class="scope-box">
-          <legend>Mark scope</legend>
-          <label class="inline-option">
-            <input type="radio" name="all_failed" value="true" checked />
-            All failed URLs in this project
-          </label>
-          <label class="inline-option">
-            <input type="radio" name="all_failed" value="false" />
-            Only IDs listed above
-          </label>
+        <fieldset class="scope">
+          <legend>Scope</legend>
+          <label class="inline"><input type="radio" name="scope" value="selected" checked /> Only the ids below</label>
+          <label class="inline"><input type="radio" name="scope" value="all" /> All failed URLs in this project</label>
         </fieldset>
 
-        <button type="submit">Mark Successful</button>
+        <label for="mark_ids">URL ids</label>
+        <input type="text" id="mark_ids" name="selected_ids" placeholder="12, 17, 24" />
+
+        <button type="submit" class="secondary">Mark successful</button>
       </form>
     </section>
   </div>
+</div>
+{% endif %}
 
-  <h2>Recent Runs</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>ID</th><th>Project</th><th>Endpoint</th><th>Source</th>
-        <th>Submitted</th><th>Accepted</th><th>Failed</th><th>Skipped Existing</th><th>Delivery</th><th>Created</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for run in runs %}
-      <tr>
-        <td>{{ run.id }}</td>
-        <td>{{ run.project_name }}</td>
-        <td>{{ run.endpoint }}</td>
-        <td>{{ run.source_type }}</td>
-        <td>{{ run.submitted_count }}</td>
-        <td>{{ run.accepted_count }}</td>
-        <td>{{ run.failed_count }}</td>
-        <td>{{ run.skipped_existing_count }}</td>
-        <td>
-          {% if run.submitted_count > 0 and run.failed_count == 0 %}
-          <span class="status-pill pill-sent">API accepted</span>
-          {% elif run.submitted_count > 0 and run.failed_count > 0 %}
-          <span class="status-pill pill-failed">API failed (partial/all)</span>
-          {% elif run.submitted_count == 0 and run.skipped_existing_count > 0 %}
-          <span class="status-pill pill-skipped">Skipped (already submitted)</span>
-          {% else %}
-          <span class="status-pill pill-skipped">No send</span>
-          {% endif %}
-        </td>
-        <td>{{ run.created_at }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</body>
-</html>
+<h2 style="margin-top: 26px;">Recent runs</h2>
+<table>
+  <thead>
+    <tr>
+      <th>Run</th><th>Project</th><th>Endpoint</th><th>Source</th>
+      <th class="num">Sent</th><th class="num">Accepted</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Invalid</th>
+      <th>Result</th><th>Started</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for run in runs %}
+    <tr>
+      <td><a href="/runs/{{ run.id }}">#{{ run.id }}</a></td>
+      <td>{{ run.project_name }}</td>
+      <td>{{ run.endpoint }}</td>
+      <td>{{ run.source_type }}</td>
+      <td class="num">{{ run.submitted_count }}</td>
+      <td class="num">{{ run.accepted_count }}</td>
+      <td class="num">{{ run.failed_count }}</td>
+      <td class="num">{{ run.skipped_existing_count }}</td>
+      <td class="num">{{ run.invalid_count }}</td>
+      <td>
+        {% if run.status == 'running' %}<span class="pill pill-run">Running</span>
+        {% elif run.status == 'failed' %}<span class="pill pill-bad">Run error</span>
+        {% elif run.status == 'interrupted' %}<span class="pill pill-warn">Interrupted</span>
+        {% elif run.failed_count > 0 and run.accepted_count > 0 %}<span class="pill pill-warn">Partly accepted</span>
+        {% elif run.failed_count > 0 %}<span class="pill pill-bad">Rejected</span>
+        {% elif run.accepted_count > 0 %}<span class="pill pill-ok">Accepted</span>
+        {% elif run.skipped_existing_count > 0 %}<span class="pill pill-warn">All skipped</span>
+        {% else %}<span class="pill pill-warn">Nothing sent</span>{% endif %}
+      </td>
+      <td>{{ run.created_at }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="11" class="empty">No runs yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Show only the fields that belong to the selected source.
+  const sourceSelect = document.getElementById('source_type');
+  function syncSourceFields() {
+    const chosen = sourceSelect.value;
+    document.querySelectorAll('[data-source]').forEach(block => {
+      block.hidden = !block.dataset.source.split(' ').includes(chosen);
+    });
+  }
+  if (sourceSelect) {
+    sourceSelect.addEventListener('change', syncSourceFields);
+    syncSourceFields();
+  }
+</script>
+{% endblock %}

@@ -1,112 +1,134 @@
 # IndexNow Automation Tool (UI + CLI)
 
-Local Python tool to submit IndexNow updates with multi-project config, SQLite tracking, and retry/override controls.
+Local Python tool to submit URLs to IndexNow. Manage projects and keys in a web UI,
+pull URLs from a sitemap, file, or paste, and watch each run report progress and
+errors live. Every URL is tracked in SQLite so nothing gets submitted twice.
 
-## Features
+## Quick start
 
-- Multi-project setup in `.env` (`PROJECTS=site1,site2,...`)
-- Per-run endpoint choice:
-  - `indexnow` -> `https://api.indexnow.org/indexnow` (default)
-  - `bing` -> `https://www.bing.com/indexnow`
-- URL sources:
-  - Sitemap URL (project default supported)
-  - TXT file (one URL per line; Windows/Mac/Linux line endings supported)
-  - CSV file (first column used)
-  - Direct paste (one URL per line)
-- SQLite history + dedupe:
-  - Submit only new URLs by default
-  - Retry failed URLs (bulk or selected IDs)
-  - Mark failed as manually successful (bulk or selected IDs)
-- Local web UI on `127.0.0.1` with automatic free-port selection
-
-## Protocol Rules Applied
-
-- Batch limit: max 10,000 URLs per POST.
-- Key format validation (`8-128` chars, `A-Z a-z 0-9 -`).
-- Host consistency validation: submitted URLs must match project host.
-- Success codes: `200` and `202`.
-- Error handling for `400`, `403`, `422`, `429`, including retry-on-429 and `Retry-After` support.
-
-Reference docs:
-
-- [IndexNow Documentation](https://www.indexnow.org/documentation)
-- [IndexNow FAQ](https://www.indexnow.org/faq)
-- [Bing IndexNow Get Started](https://www.bing.com/indexnow/getstarted)
-
-## Quick Start
-
-1. Create virtualenv and install dependencies:
-
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
-
-2. Copy env template:
-
-   ```bash
-   copy .env.example .env
-   ```
-
-3. Edit `.env` with your project(s), key(s), and hosts.
-
-4. Start UI:
-
-   ```bash
-   python main.py serve
-   ```
-
-   The app auto-finds a free localhost port and prints the URL.
-
-## .env Settings Reference (including alternatives)
-
-### Global settings
-
-- `PROJECTS` (required): comma-separated project IDs, for example `PROJECTS=demo,store,blog`
-- `DB_PATH` (optional): SQLite file path, default `data/indexnow.db`
-- `DEFAULT_ENDPOINT` (optional): `indexnow` or `bing`, default `indexnow`
-- `DEFAULT_UI_PORT` (optional): preferred start port for UI auto-scan, default `8787`
-
-### Per-project settings
-
-For each project in `PROJECTS`, define:
-
-- `PROJECT_<NAME>_HOST` (required): host only, example `www.example.com`
-- `PROJECT_<NAME>_KEY` (required): IndexNow key
-- `PROJECT_<NAME>_KEY_LOCATION` (optional): full public URL to key file
-- `PROJECT_<NAME>_SITEMAP_URL` (optional): default sitemap URL for sitemap mode
-- `PROJECT_<NAME>_DEFAULT_ENDPOINT` (optional): `indexnow` or `bing` for that project
-
-`<NAME>` is uppercased internally, so `PROJECT_demo_HOST` and `PROJECT_DEMO_HOST` are treated the same in practice if your environment preserves case.
-
-### Endpoint alternatives
-
-- `indexnow` = `https://api.indexnow.org/indexnow` (recommended default)
-- `bing` = `https://www.bing.com/indexnow`
-
-You can set endpoint at 3 levels:
-
-1. Global default via `DEFAULT_ENDPOINT`
-2. Per-project override via `PROJECT_<NAME>_DEFAULT_ENDPOINT`
-3. Per-run override in UI dropdown or CLI `--endpoint`
-
-### Example A: Single project (minimal)
-
-```env
-PROJECTS=demo
-PROJECT_DEMO_HOST=www.example.com
-PROJECT_DEMO_KEY=90d0eecfb5144dc4bdbb41c28fd71a15
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows; use source .venv/bin/activate elsewhere
+pip install -r requirements.txt
+python main.py serve
 ```
 
-### Example B: Single project (full options)
+The app picks a free port and prints the URL. Open it, go to **Projects & keys**,
+add a project, and press **Verify key** before your first run.
+
+## Setting up a project
+
+1. Choose a key: 8-128 characters of `A-Z a-z 0-9 -`. Any random string works.
+2. Save it in a file named `<key>.txt` containing only the key.
+3. Upload that file to the host root, so `https://www.example.com/<key>.txt` serves it.
+4. Add the project in the UI: name, host, key.
+5. Press **Verify key**. It fetches the file exactly as a search engine would.
+
+Skipping step 5 is the usual reason runs come back `403`, or get accepted and then
+silently ignored.
+
+## Submitting URLs
+
+Pick a source on the **Submit** page:
+
+| Source | Notes |
+| --- | --- |
+| Sitemap URL | Follows sitemap indexes up to 3 levels. Handles `.xml.gz`. |
+| TXT file | One URL per line. Any line endings. |
+| CSV file | First column. A header row is skipped automatically. |
+| Paste | One URL per line. |
+
+The run page then shows a progress bar, live counters, and a log of every batch
+result and every rejected URL.
+
+### What gets sent
+
+- URLs whose host does not match the project are rejected before any request, with
+  the reason logged. IndexNow rejects a whole batch on a host mismatch.
+- URLs are canonicalized before hashing, so `HTTPS://WWW.Example.com/A:443` and
+  `https://www.example.com/A` count as one URL.
+- A URL the API already accepted is skipped. Tick **Resubmit URLs that were already
+  accepted** to override.
+- A URL that failed, or was left behind by an interrupted run, is picked up again on
+  the next run of the same source.
+- Submissions go out in batches of 1,000 so progress is visible and one rejected
+  batch does not take down the whole run.
+
+## Protocol rules applied
+
+- Max 10,000 URLs per POST (the tool uses 1,000).
+- Key format validated as 8-128 chars of `A-Z a-z 0-9 -`.
+- Host consistency enforced against the project host.
+- `200` and `202` count as success.
+- `400`, `403`, `404`, `422`, `429` are reported with what each one means. `429`
+  retries and honors `Retry-After`; network errors retry up to 3 times.
+
+Reference: [IndexNow docs](https://www.indexnow.org/documentation) ·
+[FAQ](https://www.indexnow.org/faq) ·
+[Bing get started](https://www.bing.com/indexnow/getstarted)
+
+## Handling failures
+
+The **Failed** view per project lists every rejected URL with its HTTP code, the
+response excerpt, and its id. From there you can retry all of them, or copy ids into
+the dashboard's retry form to retry a subset. **Mark failed as successful** closes
+URLs you confirmed were indexed some other way; it only changes local bookkeeping.
+
+Export any project's URLs as CSV from the dashboard or the Failed view.
+
+## CLI
+
+```bash
+python main.py projects                       # list projects
+python main.py project-add --name demo --host www.example.com --key <key>
+python main.py verify-key --project demo      # exits non-zero if the key file is wrong
+python main.py status                         # recent runs as JSON
+
+python main.py run --project demo --source sitemap --sitemap-url https://www.example.com/sitemap.xml
+python main.py run --project demo --source txt --file urls.txt --endpoint bing
+python main.py run --project demo --source csv --file urls.csv
+python main.py run --project demo --source paste --paste "https://www.example.com/a"
+python main.py run --project demo --source sitemap --force     # resubmit known URLs
+
+python main.py retry-failed --project demo --ids 12,13
+python main.py retry-failed --project demo --all
+python main.py mark-success --project demo --ids 12,13
+python main.py export --project demo --status failed > failed.csv
+
+python main.py serve --start-port 9000
+```
+
+`run` and `retry-failed` stream the same log the UI shows and exit non-zero if
+anything failed, so they drop straight into a scheduled task.
+
+`retry-failed` and `mark-success` require either `--ids` or `--all`. An empty
+selection never means "everything".
+
+## Configuration
+
+Projects live in the SQLite database and are edited in the UI. The `.env` file only
+holds app-level settings:
+
+```env
+DB_PATH=data/indexnow.db      # default
+DEFAULT_ENDPOINT=indexnow     # indexnow | bing
+DEFAULT_UI_PORT=8787          # first port tried; the app scans upward for a free one
+```
+
+### Endpoints
+
+- `indexnow` -> `https://api.indexnow.org/indexnow` (recommended; shared across engines)
+- `bing` -> `https://www.bing.com/indexnow`
+
+Set per project in the UI, or per run in the dropdown or `--endpoint`.
+
+### Legacy `.env` projects
+
+Projects defined the old way are imported into the database on startup, and only if
+no project of that name exists yet, so UI edits are never overwritten:
 
 ```env
 PROJECTS=demo
-DB_PATH=data/indexnow.db
-DEFAULT_ENDPOINT=indexnow
-DEFAULT_UI_PORT=8787
-
 PROJECT_DEMO_HOST=www.example.com
 PROJECT_DEMO_KEY=90d0eecfb5144dc4bdbb41c28fd71a15
 PROJECT_DEMO_KEY_LOCATION=https://www.example.com/90d0eecfb5144dc4bdbb41c28fd71a15.txt
@@ -114,72 +136,14 @@ PROJECT_DEMO_SITEMAP_URL=https://www.example.com/sitemap.xml
 PROJECT_DEMO_DEFAULT_ENDPOINT=bing
 ```
 
-### Example C: Multi-project
+Once imported you can delete those lines. Keys are then stored only in
+`data/indexnow.db`, which is gitignored.
 
-```env
-PROJECTS=mainstore,blog
-DEFAULT_ENDPOINT=indexnow
-
-PROJECT_MAINSTORE_HOST=store.example.com
-PROJECT_MAINSTORE_KEY=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee
-PROJECT_MAINSTORE_SITEMAP_URL=https://store.example.com/sitemap.xml
-PROJECT_MAINSTORE_DEFAULT_ENDPOINT=bing
-
-PROJECT_BLOG_HOST=www.example.com
-PROJECT_BLOG_KEY=11111111-2222-3333-4444-555555555555
-PROJECT_BLOG_KEY_LOCATION=https://www.example.com/keys/indexnow.txt
-PROJECT_BLOG_DEFAULT_ENDPOINT=indexnow
-```
-
-### Notes
-
-- If `PROJECT_<NAME>_SITEMAP_URL` is missing, you can still pass sitemap URL per run using CLI `--sitemap-url` or UI field.
-- If `PROJECT_<NAME>_KEY_LOCATION` is omitted, requests are sent without `keyLocation` (works when key file is at host root).
-- Invalid project keys fail fast at startup (must be 8-128 chars: letters, numbers, `-`).
-
-## CLI Examples
-
-Run from sitemap:
+## Tests
 
 ```bash
-python main.py run --project demo --source sitemap --endpoint indexnow --sitemap-url https://www.example.com/sitemap.xml
+python tests/test_core.py     # or: pytest
 ```
 
-Run from txt:
-
-```bash
-python main.py run --project demo --source txt --file urls.txt --endpoint bing
-```
-
-Run from csv:
-
-```bash
-python main.py run --project demo --source csv --file urls.csv
-```
-
-Run from paste:
-
-```bash
-python main.py run --project demo --source paste --paste "https://www.example.com/a
-https://www.example.com/b"
-```
-
-Retry failed:
-
-```bash
-python main.py retry-failed --project demo --endpoint bing
-python main.py retry-failed --project demo --ids 12,13,14
-```
-
-Mark failed as success:
-
-```bash
-python main.py mark-success --project demo
-python main.py mark-success --project demo --ids 12,13,14
-```
-
-Show status:
-
-```bash
-python main.py status
-```
+Covers URL canonicalization, host validation, sitemap index detection, dedupe rules,
+and the selection-scope guards. No network calls.

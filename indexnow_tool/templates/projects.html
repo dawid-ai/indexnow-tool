@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% set active_page = 'projects' %}
+{% block title %}Projects &amp; keys — IndexNow Tool{% endblock %}
+
+{% block content %}
+<h1>Projects &amp; keys</h1>
+<p class="sub">Each project is a name, a host, and the IndexNow key that host serves. Keys are stored in the local database.</p>
+
+{% set editing = rows | selectattr('name', 'equalto', edit) | first %}
+
+<div class="grid">
+  <section class="card">
+    <h2>{{ 'Edit project: ' + editing['name'] if editing else 'Add a project' }}</h2>
+    <form action="/projects/save" method="post">
+      <input type="hidden" name="original_name" value="{{ editing['name'] if editing else '' }}" />
+
+      <label for="name">Name</label>
+      <input type="text" id="name" name="name" required maxlength="64"
+             value="{{ editing['name'] if editing else '' }}" placeholder="mainstore" />
+      <p class="hint">Your label for this site. Renaming keeps the URL history attached.</p>
+
+      <label for="host">Host</label>
+      <input type="text" id="host" name="host" required
+             value="{{ editing['host'] if editing else '' }}" placeholder="www.example.com" />
+      <p class="hint">Host only. A pasted full URL gets trimmed down automatically. Every submitted URL must match this host exactly.</p>
+
+      <label for="key">IndexNow key</label>
+      <input type="text" id="key" name="key" required
+             value="{{ editing['key'] if editing else '' }}" placeholder="90d0eecfb5144dc4bdbb41c28fd71a15" />
+      <p class="hint">8-128 characters, letters, numbers and dashes only.</p>
+
+      <label for="key_location">Key file URL (optional)</label>
+      <input type="url" id="key_location" name="key_location"
+             value="{{ editing['key_location'] or '' if editing else '' }}"
+             placeholder="https://www.example.com/90d0...a15.txt" />
+      <p class="hint">Only needed when the key file is not at the host root. Verify checks this exact URL.</p>
+
+      <label for="sitemap_url">Default sitemap URL (optional)</label>
+      <input type="url" id="sitemap_url" name="sitemap_url"
+             value="{{ editing['sitemap_url'] or '' if editing else '' }}"
+             placeholder="https://www.example.com/sitemap.xml" />
+
+      <label for="default_endpoint">Default endpoint</label>
+      <select id="default_endpoint" name="default_endpoint">
+        <option value="indexnow" {{ 'selected' if not editing or editing['default_endpoint'] == 'indexnow' }}>IndexNow global</option>
+        <option value="bing" {{ 'selected' if editing and editing['default_endpoint'] == 'bing' }}>Bing direct</option>
+      </select>
+
+      <button type="submit">{{ 'Save changes' if editing else 'Add project' }}</button>
+      {% if editing %}<a href="/projects"><button type="button" class="secondary">Cancel</button></a>{% endif %}
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Before your first run</h2>
+    <ol class="sub" style="padding-left: 18px; line-height: 1.7;">
+      <li>Pick any key you like, 8-128 characters of <code>A-Z a-z 0-9 -</code>.</li>
+      <li>Put it in a text file whose name is the key plus <code>.txt</code>, containing only the key.</li>
+      <li>Upload it to the root of the host, for example <code>https://www.example.com/&lt;key&gt;.txt</code>.</li>
+      <li>Add the project here, then press <strong>Verify key</strong>.</li>
+    </ol>
+    <p class="hint">Verify fetches the key file the way a search engine does. Skipping it is how runs come back <code>403</code>, or worse, get accepted and quietly ignored.</p>
+  </section>
+</div>
+
+<h2 style="margin-top: 26px;">Configured projects</h2>
+<table>
+  <thead>
+    <tr><th>Name</th><th>Host</th><th>Key</th><th>Endpoint</th><th>Sitemap</th><th class="num">URLs</th><th class="num">Failed</th><th>Actions</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    {% set s = summaries.get(row['name']) %}
+    <tr>
+      <td><strong>{{ row['name'] }}</strong></td>
+      <td>{{ row['host'] }}</td>
+      <td><code>{{ row['key'][:6] }}…{{ row['key'][-4:] }}</code></td>
+      <td>{{ row['default_endpoint'] }}</td>
+      <td>{{ 'yes' if row['sitemap_url'] else '—' }}</td>
+      <td class="num">{{ s['total_urls'] if s else 0 }}</td>
+      <td class="num">{{ (s['failed_urls'] or 0) if s else 0 }}</td>
+      <td>
+        <div class="row-actions">
+          <a href="/projects?edit={{ row['name'] }}"><button type="button" class="secondary small">Edit</button></a>
+          <form action="/projects/verify" method="post" style="display:inline">
+            <input type="hidden" name="name" value="{{ row['name'] }}" />
+            <button type="submit" class="secondary small">Verify key</button>
+          </form>
+          <form action="/projects/delete" method="post" style="display:inline"
+                onsubmit="const t = prompt('Type the project name to delete it. URL history is kept.'); if (t === null) return false; this.confirm_name.value = t; return true;">
+            <input type="hidden" name="name" value="{{ row['name'] }}" />
+            <input type="hidden" name="confirm_name" value="" />
+            <button type="submit" class="danger small">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="empty">No projects configured yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="hint">Projects listed in a legacy <code>.env</code> file are imported on startup if a project of that name does not exist yet. Edits made here are never overwritten.</p>
+{% endblock %}

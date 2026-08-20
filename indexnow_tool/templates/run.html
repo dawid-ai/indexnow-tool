@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% set active_page = 'dashboard' %}
+{% block title %}Run #{{ run['id'] }} — IndexNow Tool{% endblock %}
+
+{% block content %}
+<h1>Run #{{ run['id'] }} <span id="status-pill" class="pill pill-run">Starting</span></h1>
+<p class="sub">
+  Project <strong>{{ run['project_name'] }}</strong> ·
+  {{ run['source_type'] }} source ·
+  {{ run['endpoint'] }} endpoint
+  <span id="source-ref"></span>
+</p>
+
+<section class="card">
+  <div style="display:flex; justify-content:space-between; align-items:baseline;">
+    <h2 id="phase">Starting…</h2>
+    <span id="counter" class="hint"></span>
+  </div>
+  <div style="background:#ececee; border-radius:999px; height:12px; overflow:hidden; margin-top:6px;">
+    <div id="bar" style="height:100%; width:0%; background:#4c8bf5; transition: width .3s;"></div>
+  </div>
+
+  <div class="grid" style="margin-top:18px; grid-template-columns: repeat(5, 1fr); gap:10px;">
+    <div><div class="hint">Sent</div><div id="m-submitted" style="font-size:22px; font-weight:700;">0</div></div>
+    <div><div class="hint">Accepted</div><div id="m-accepted" style="font-size:22px; font-weight:700; color:#1f6e38;">0</div></div>
+    <div><div class="hint">Failed</div><div id="m-failed" style="font-size:22px; font-weight:700; color:#8f1d1d;">0</div></div>
+    <div><div class="hint">Skipped as duplicate</div><div id="m-skipped" style="font-size:22px; font-weight:700;">0</div></div>
+    <div><div class="hint">Invalid</div><div id="m-invalid" style="font-size:22px; font-weight:700;">0</div></div>
+  </div>
+
+  <div id="run-error" class="flash bad" hidden></div>
+</section>
+
+<section class="card">
+  <h2>Live log</h2>
+  <div id="log" style="max-height:420px; overflow-y:auto; font-family: ui-monospace, Consolas, monospace; font-size:12.5px; line-height:1.6;"></div>
+</section>
+
+<div class="row-actions" style="margin-top:16px;">
+  <a href="/"><button type="button" class="secondary">Back to dashboard</button></a>
+  <a href="/projects/{{ run['project_name'] }}/failed"><button type="button" class="secondary">Failed URLs for this project</button></a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const RUN_ID = {{ run['id'] }};
+  const LEVEL_COLOR = { error: '#8f1d1d', warning: '#8c5a00', info: '#3a3a3a' };
+  let afterId = 0;
+  let delay = 700;
+
+  const el = id => document.getElementById(id);
+
+  function writeLine(level, text) {
+    const log = el('log');
+    const atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    const line = document.createElement('div');
+    line.style.color = LEVEL_COLOR[level] || '#3a3a3a';
+    // textContent, so a URL or API response can never inject markup.
+    line.textContent = text;
+    log.appendChild(line);
+    if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  function appendMessages(messages) {
+    for (const m of messages) {
+      writeLine(m.level, `${m.at.slice(11, 19)}  ${m.message}`);
+      afterId = Math.max(afterId, m.id);
+    }
+  }
+
+  function setStatus(data) {
+    const pill = el('status-pill');
+    const map = {
+      running: ['Running', 'pill-run'],
+      completed: ['Completed', data.failed > 0 ? 'pill-warn' : 'pill-ok'],
+      failed: ['Run error', 'pill-bad'],
+      interrupted: ['Interrupted', 'pill-warn'],
+    };
+    const [text, cls] = map[data.status] || ['Unknown', 'pill-warn'];
+    pill.textContent = text;
+    pill.className = 'pill ' + cls;
+
+    el('phase').textContent = data.finished
+      ? (data.status === 'completed' ? 'Finished' : 'Stopped')
+      : (data.phase || 'Working') + '…';
+
+    el('bar').style.width = data.percent + '%';
+    el('bar').style.background = data.status === 'failed' ? '#a11d1d' : (data.failed > 0 ? '#c98a12' : '#4c8bf5');
+    el('counter').textContent = data.total ? `${data.processed} / ${data.total} URLs` : '';
+
+    el('m-submitted').textContent = data.submitted;
+    el('m-accepted').textContent = data.accepted;
+    el('m-failed').textContent = data.failed;
+    el('m-skipped').textContent = data.skipped;
+    el('m-invalid').textContent = data.invalid;
+
+    if (data.source_ref) el('source-ref').textContent = ' · ' + data.source_ref;
+
+    if (data.error) {
+      const box = el('run-error');
+      box.hidden = false;
+      box.textContent = data.error;
+    }
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch(`/api/runs/${RUN_ID}?after=${afterId}`);
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const data = await response.json();
+      appendMessages(data.messages);
+      setStatus(data);
+      if (data.finished) return;
+      delay = 700;
+    } catch (err) {
+      // Back off instead of hammering a server that just went away.
+      delay = Math.min(delay * 2, 10000);
+      writeLine('warning', `Lost contact with the server (${err.message}); retrying in ${delay / 1000}s.`);
+    }
+    setTimeout(poll, delay);
+  }
+
+  poll();
+</script>
+{% endblock %}

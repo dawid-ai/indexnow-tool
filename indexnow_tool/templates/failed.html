@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% set active_page = 'dashboard' %}
+{% block title %}Failed URLs — {{ project_name }}{% endblock %}
+
+{% block content %}
+<h1>Failed URLs — {{ project_name }}</h1>
+<p class="sub">
+  {{ failed_total }} failed URL{{ '' if failed_total == 1 else 's' }}.
+  {% if failed_total > rows | length %}Showing the {{ rows | length }} most recent — export the CSV for the full list.{% endif %}
+</p>
+
+<div class="row-actions" style="margin-bottom:16px;">
+  <a href="/"><button type="button" class="secondary">Back to dashboard</button></a>
+  <a href="/projects/{{ project_name }}/export.csv?status=failed"><button type="button" class="secondary">Export failed as CSV</button></a>
+  <a href="/projects/{{ project_name }}/export.csv"><button type="button" class="secondary">Export all as CSV</button></a>
+</div>
+
+{% if rows %}
+<section class="card" style="margin-bottom:18px;">
+  <h2>Retry these</h2>
+  <form action="/failed/retry" method="post">
+    <input type="hidden" name="project" value="{{ project_name }}" />
+    <input type="hidden" name="scope" value="all" />
+    <label for="endpoint">Endpoint</label>
+    <select id="endpoint" name="endpoint">
+      <option value="indexnow">IndexNow global</option>
+      <option value="bing">Bing direct</option>
+    </select>
+    <button type="submit">Retry all {{ failed_total }} failed URLs</button>
+    <p class="hint">To retry a subset, copy ids from the table into the retry form on the dashboard.</p>
+  </form>
+</section>
+
+<table>
+  <thead>
+    <tr><th>Id</th><th>URL</th><th class="num">HTTP</th><th>Endpoint</th><th class="num">Attempts</th><th>Last response</th><th>Updated</th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td><code>{{ row['id'] }}</code></td>
+      <td style="word-break: break-all;">{{ row['url'] }}</td>
+      <td class="num">{{ row['last_http_code'] or '—' }}</td>
+      <td>{{ row['last_endpoint'] or '—' }}</td>
+      <td class="num">{{ row['attempt_count'] }}</td>
+      <td class="hint" style="word-break: break-word;">{{ row['last_response_excerpt'] or '—' }}</td>
+      <td class="hint">{{ row['updated_at'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="card"><p class="empty">No failed URLs for this project.</p></div>
+{% endif %}
+{% endblock %}

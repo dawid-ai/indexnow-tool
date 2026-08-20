@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}IndexNow Tool{% endblock %}</title>
+  <style>
+    :root { --line: #dcdcdc; --muted: #5b5b5b; --bg: #fff; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, Segoe UI, Arial, sans-serif; margin: 0; background: #f7f7f8; color: #1c1c1c; }
+    .wrap { max-width: 1140px; margin: 0 auto; padding: 20px 24px 60px; }
+    nav { background: #1c1c1c; }
+    nav .wrap { padding: 0 24px; display: flex; gap: 4px; align-items: center; }
+    nav a { color: #d6d6d6; text-decoration: none; padding: 14px 14px; font-size: 14px; font-weight: 600; }
+    nav a:hover { color: #fff; }
+    nav a.active { color: #fff; box-shadow: inset 0 -3px 0 #4c8bf5; }
+    nav .brand { color: #fff; font-weight: 700; margin-right: 18px; padding: 14px 0; }
+    h1 { font-size: 22px; margin: 22px 0 4px; }
+    h2 { font-size: 17px; margin: 0 0 12px; }
+    h3 { font-size: 15px; margin: 0 0 10px; }
+    .sub { color: var(--muted); font-size: 14px; margin: 0 0 18px; }
+    label { display: block; margin-top: 12px; font-weight: 600; font-size: 13px; }
+    input, select, textarea { width: 100%; padding: 8px; margin-top: 4px; border: 1px solid var(--line); border-radius: 5px; font: inherit; font-size: 14px; background: #fff; }
+    input[type="checkbox"], input[type="radio"] { width: auto; margin: 0; }
+    button { margin-top: 14px; padding: 9px 16px; border: 0; border-radius: 5px; background: #1c1c1c; color: #fff; font-weight: 600; cursor: pointer; font-size: 14px; }
+    button:hover { background: #383838; }
+    button.secondary { background: #fff; color: #1c1c1c; border: 1px solid var(--line); }
+    button.danger { background: #a11d1d; }
+    button.small { padding: 5px 10px; margin-top: 0; font-size: 13px; }
+    table { border-collapse: collapse; width: 100%; background: #fff; }
+    th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; font-size: 13px; text-align: left; vertical-align: top; }
+    th { background: #f2f2f3; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted); }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--bg); }
+    .card + .card { margin-top: 18px; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+    .pill { padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; display: inline-block; white-space: nowrap; }
+    .pill-ok { background: #eefaf0; color: #1f6e38; border: 1px solid #90d7a3; }
+    .pill-warn { background: #fff8e9; color: #8c5a00; border: 1px solid #f0ce8a; }
+    .pill-bad { background: #fff1f1; color: #8f1d1d; border: 1px solid #e7a4a4; }
+    .pill-run { background: #eef3ff; color: #23478f; border: 1px solid #a8c1f0; }
+    .flash { padding: 11px 14px; border-radius: 6px; margin: 16px 0; font-size: 14px; }
+    .flash.ok { background: #eefaf0; border: 1px solid #90d7a3; color: #1f6e38; }
+    .flash.bad { background: #fff1f1; border: 1px solid #e7a4a4; color: #8f1d1d; }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .inline { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-weight: 400; font-size: 14px; }
+    .scope { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-top: 12px; }
+    .scope legend { font-weight: 700; font-size: 13px; padding: 0 4px; }
+    a { color: #23478f; }
+    code { background: #f0f0f1; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+    .empty { color: var(--muted); font-size: 14px; padding: 14px 0; }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap">
+      <span class="brand">IndexNow</span>
+      <a href="/" class="{{ 'active' if active_page == 'dashboard' }}">Submit</a>
+      <a href="/projects" class="{{ 'active' if active_page == 'projects' }}">Projects &amp; keys</a>
+    </div>
+  </nav>
+  <div class="wrap">
+    {% if notice %}<div class="flash ok">{{ notice }}</div>{% endif %}
+    {% if error %}<div class="flash bad">{{ error }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
