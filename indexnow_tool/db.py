@@ -344,12 +344,18 @@ class Database:
     def create_run(
         self, project_name: str, endpoint: str, source_type: str, source_ref: str | None
     ) -> int:
+        # Every column is written explicitly. A database created before these
+        # counters gained defaults still has them as NOT NULL with no default, and
+        # CREATE TABLE IF NOT EXISTS never revises an existing table, so relying on
+        # the default here fails on any pre-existing database.
         with self._lock:
             cursor = self.conn.execute(
                 """
                 INSERT INTO submission_runs(
-                    project_name, endpoint, source_type, source_ref, status, phase
-                ) VALUES (?, ?, ?, ?, 'running', 'starting')
+                    project_name, endpoint, source_type, source_ref, status, phase,
+                    submitted_count, accepted_count, failed_count, skipped_existing_count,
+                    total_urls, processed_urls, invalid_count
+                ) VALUES (?, ?, ?, ?, 'running', 'starting', 0, 0, 0, 0, 0, 0, 0)
                 """,
                 (project_name, endpoint, source_type, source_ref),
             )

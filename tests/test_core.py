@@ -120,6 +120,95 @@ def test_dedupe_skips_accepted_but_recovers_stalled_urls():
     assert ids == [first_ids[1]] and skipped == 1
 
 
+# The v1 schema, verbatim. Its counter columns are NOT NULL with no default, and
+# CREATE TABLE IF NOT EXISTS never revises an existing table — so anything that
+# relies on a default added later breaks only on an upgraded database, never on a
+# fresh one. Every schema change needs a check against this.
+LEGACY_SCHEMA = """
+CREATE TABLE url_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    url_hash TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    last_http_code INTEGER,
+    last_response_excerpt TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_endpoint TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_submitted_at DATETIME
+);
+CREATE UNIQUE INDEX idx_url_project_hash ON url_entries(project_name, url_hash);
+CREATE TABLE submission_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_name TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT,
+    submitted_count INTEGER NOT NULL,
+    accepted_count INTEGER NOT NULL,
+    failed_count INTEGER NOT NULL,
+    skipped_existing_count INTEGER NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE submission_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    url_entry_id INTEGER NOT NULL,
+    http_code INTEGER,
+    response_excerpt TEXT,
+    result TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(run_id) REFERENCES submission_runs(id),
+    FOREIGN KEY(url_entry_id) REFERENCES url_entries(id)
+);
+"""
+
+
+def test_upgraded_database_still_works():
+    import sqlite3
+
+    path = Path(tempfile.mkdtemp()) / "legacy.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(LEGACY_SCHEMA)
+    legacy.execute(
+        "INSERT INTO url_entries(project_name, url, url_hash, source_type, status) "
+        "VALUES ('p', 'https://ex.com/old', 'deadbeef', 'paste', 'submitted')"
+    )
+    legacy.execute(
+        "INSERT INTO submission_runs(project_name, endpoint, source_type, "
+        "submitted_count, accepted_count, failed_count, skipped_existing_count) "
+        "VALUES ('p', 'indexnow', 'paste', 1, 1, 0, 0)"
+    )
+    legacy.commit()
+    legacy.close()
+
+    db = Database(path)
+
+    # Existing data survives the migration.
+    assert len(db.get_entries_by_status("p", ["submitted"], None)) == 1
+    assert len(db.list_recent_runs()) == 1
+
+    # The whole run lifecycle works on the upgraded table.
+    run_id = db.create_run("p", "indexnow", "paste", None)
+    row = db.get_run(run_id)
+    assert row["status"] == "running" and row["submitted_count"] == 0
+    db.update_run(run_id, total_urls=2, processed_urls=1, accepted_count=1)
+    db.add_run_message(run_id, "info", "hello")
+    db.finish_run(run_id, "completed")
+    assert db.get_run(run_id)["status"] == "completed"
+    assert len(db.list_run_messages(run_id)) == 1
+
+    # A run stranded by a crash is closed out on the next startup, not left running.
+    db.conn.execute("UPDATE submission_runs SET status='running' WHERE id = ?", (run_id,))
+    db.conn.commit()
+    db.conn.close()
+    assert Database(path).get_run(run_id)["status"] == "interrupted"
+
+
 def test_rename_keeps_history_attached():
     db = _fresh_db()
     db.upsert_project("old", "ex.com", "key-12345678", None, None, "indexnow")

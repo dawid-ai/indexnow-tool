@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import traceback
 from pathlib import Path
 from urllib.parse import quote
 
@@ -86,8 +87,9 @@ def create_app(config: AppConfig, service: IndexNowService | None = None) -> Fas
         )
         try:
             run_id = service.start_run(request_obj)
-        except ValueError as exc:
-            return _redirect("/", error=str(exc))
+        except Exception as exc:  # noqa: BLE001 - shown to the user, not swallowed
+            traceback.print_exc()
+            return _redirect("/", error=f"Could not start the run. {type(exc).__name__}: {exc}")
         return _redirect(f"/runs/{run_id}")
 
     # ------------------------------------------------------------- live view
@@ -193,8 +195,9 @@ def create_app(config: AppConfig, service: IndexNowService | None = None) -> Fas
 
         try:
             run_id = service.start_retry(project, endpoint=clean_endpoint(endpoint), entry_ids=ids)
-        except ValueError as exc:
-            return _redirect("/", error=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            return _redirect("/", error=f"Could not start the retry. {type(exc).__name__}: {exc}")
         return _redirect(f"/runs/{run_id}")
 
     @app.post("/failed/mark-success")
@@ -213,8 +216,9 @@ def create_app(config: AppConfig, service: IndexNowService | None = None) -> Fas
 
         try:
             count = service.mark_failed_success(project, entry_ids=ids)
-        except ValueError as exc:
-            return _redirect("/", error=str(exc))
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            return _redirect("/", error=f"Could not mark URLs. {type(exc).__name__}: {exc}")
         return _redirect("/", notice=f"Marked {count} failed URLs as manually successful.")
 
     @app.get("/projects/{name}/failed", response_class=HTMLResponse)
