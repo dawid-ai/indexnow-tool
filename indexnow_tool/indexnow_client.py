@@ -98,7 +98,13 @@ def verify_key_file(host: str, key: str, key_location: str | None = None) -> tup
     """
     url = key_location or f"https://{host}/{key}.txt"
     try:
-        response = httpx.get(url, timeout=15, follow_redirects=True)
+        # Same header fix as sources._fetch: some CDNs 403 httpx's bare defaults.
+        response = httpx.get(
+            url,
+            timeout=15,
+            follow_redirects=True,
+            headers={"User-Agent": "indexnow-tool/1.0", "Accept": "text/plain,*/*;q=0.8"},
+        )
     except httpx.HTTPError as exc:
         return False, f"Could not fetch {url}: {exc}"
 

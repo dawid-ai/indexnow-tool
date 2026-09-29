@@ -51,7 +51,12 @@ def _fetch(url: str, timeout_seconds: int) -> str:
             url,
             timeout=timeout_seconds,
             follow_redirects=True,
-            headers={"User-Agent": "indexnow-tool/1.0"},
+            # Some CDNs (Hostinger's hcdn) 403 httpx's bare default headers; a
+            # real Accept header is enough to pass, with the honest User-Agent kept.
+            headers={
+                "User-Agent": "indexnow-tool/1.0",
+                "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8",
+            },
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
