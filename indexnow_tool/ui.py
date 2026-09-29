@@ -146,6 +146,10 @@ def create_app(
             file_bytes = await file.read()
             label = file.filename
 
+        if source_type == "saved":
+            # Same as a sitemap run; a blank URL falls back to the project's saved one.
+            source_type, sitemap_url = "sitemap", ""
+
         request_obj = RunRequest(
             project_name=project,
             source_type=source_type,
@@ -238,6 +242,26 @@ def create_app(
             "/projects",
             notice=f"Deleted project '{name}'. Its URL history was kept.",
         )
+
+    @app.post("/projects/index")
+    def index_projects(names: list[str] = Form(default=[])):
+        # One run per project against its saved sitemap. Blank sitemap_url in the
+        # request makes the service fall back to project.sitemap_url.
+        projects = service.projects()
+        chosen = [n for n in names if n in projects and projects[n].sitemap_url]
+        if not chosen:
+            return _redirect("/projects", error="Select at least one project with a saved sitemap.")
+        run_ids = []
+        for name in chosen:
+            try:
+                run_ids.append(service.start_run(RunRequest(project_name=name, source_type="sitemap")))
+            except Exception as exc:  # noqa: BLE001
+                traceback.print_exc()
+                return _redirect("/", error=f"Could not start the run for '{name}'. {type(exc).__name__}: {exc}")
+        if len(run_ids) == 1:
+            return _redirect(f"/runs/{run_ids[0]}")
+        started = ", ".join(f"#{r}" for r in run_ids)
+        return _redirect("/", notice=f"Started {len(run_ids)} runs: {started}.")
 
     @app.post("/projects/verify")
     def verify_project(name: str = Form(...)):

@@ -311,6 +311,39 @@ def test_open_instance_refuses_to_serve_the_network():
     assert startup_warning(with_password, "0.0.0.0") is None
 
 
+def test_index_button_runs_only_projects_with_a_saved_sitemap():
+    from fastapi.testclient import TestClient
+
+    from indexnow_tool.auth import AuthConfig
+    from indexnow_tool.config import AppConfig
+    from indexnow_tool.service import IndexNowService
+    from indexnow_tool.ui import create_app
+
+    db = _fresh_db()
+    db.upsert_project(name="a", host="a.com", key="k" * 8, key_location=None,
+                      sitemap_url="https://a.com/sitemap.xml", default_endpoint="indexnow")
+    db.upsert_project(name="b", host="b.com", key="k" * 8, key_location=None,
+                      sitemap_url=None, default_endpoint="indexnow")
+    service = IndexNowService(AppConfig(Path("unused.db"), "indexnow", 8000), db=db)
+    started = []
+    # Stubbed so the test never reaches the IndexNow API.
+    service.start_run = lambda req: started.append(req) or len(started)
+    client = TestClient(create_app(service.config, service, AuthConfig(None, b"s", False)))
+
+    # A project without a saved sitemap is never run, and nothing selected runs nothing.
+    client.post("/projects/index", data={"names": ["b"]}, follow_redirects=False)
+    client.post("/projects/index", data={}, follow_redirects=False)
+    assert started == []
+
+    r = client.post("/projects/index", data={"names": ["a", "b"]}, follow_redirects=False)
+    assert [s.project_name for s in started] == ["a"] and r.headers["location"] == "/runs/1"
+    assert started[0].source_type == "sitemap" and not started[0].sitemap_url
+
+    # The Submit form's "Saved sitemap" source is a sitemap run on the saved URL.
+    client.post("/run", data={"project": "a", "source_type": "saved"}, follow_redirects=False)
+    assert started[1].source_type == "sitemap" and not started[1].sitemap_url
+
+
 if __name__ == "__main__":
     failures = 0
     for name, fn in sorted(globals().items()):

@@ -66,12 +66,14 @@
 <h2 style="margin-top: 26px;">Configured projects</h2>
 <table>
   <thead>
-    <tr><th>Name</th><th>Host</th><th>Key</th><th>Endpoint</th><th>Sitemap</th><th class="num">URLs</th><th class="num">Failed</th><th>Actions</th></tr>
+    <tr><th></th><th>Name</th><th>Host</th><th>Key</th><th>Endpoint</th><th>Sitemap</th><th class="num">URLs</th><th class="num">Failed</th><th>Actions</th></tr>
   </thead>
   <tbody>
     {% for row in rows %}
     {% set s = summaries.get(row['name']) %}
     <tr>
+      <td><input type="checkbox" form="index-selected" name="names" value="{{ row['name'] }}"
+                 {{ '' if row['sitemap_url'] else 'disabled title="No saved sitemap"' }} /></td>
       <td><strong>{{ row['name'] }}</strong></td>
       <td>{{ row['host'] }}</td>
       <td><code>{{ row['key'][:6] }}…{{ row['key'][-4:] }}</code></td>
@@ -81,6 +83,12 @@
       <td class="num">{{ (s['failed_urls'] or 0) if s else 0 }}</td>
       <td>
         <div class="row-actions">
+          {% if row['sitemap_url'] %}
+          <form action="/projects/index" method="post" style="display:inline">
+            <input type="hidden" name="names" value="{{ row['name'] }}" />
+            <button type="submit" class="go small">INDEX</button>
+          </form>
+          {% endif %}
           <a href="/projects?edit={{ row['name'] }}"><button type="button" class="secondary small">Edit</button></a>
           <form action="/projects/verify" method="post" style="display:inline">
             <input type="hidden" name="name" value="{{ row['name'] }}" />
@@ -96,9 +104,15 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="8" class="empty">No projects configured yet.</td></tr>
+    <tr><td colspan="9" class="empty">No projects configured yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+{% if rows %}
+<form id="index-selected" action="/projects/index" method="post">
+  <button type="submit" class="go">Index selected</button>
+  <span class="hint">Runs each checked project against its saved sitemap. Projects without one can't be selected.</span>
+</form>
+{% endif %}
 <p class="hint">Projects listed in a legacy <code>.env</code> file are imported on startup if a project of that name does not exist yet. Edits made here are never overwritten.</p>
 {% endblock %}

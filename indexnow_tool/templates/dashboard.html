@@ -21,7 +21,7 @@
       <label for="project">Project</label>
       <select id="project" name="project" required>
         {% for name, cfg in projects.items() %}
-        <option value="{{ name }}">{{ name }} — {{ cfg.host }}</option>
+        <option value="{{ name }}" data-sitemap="{{ cfg.sitemap_url or '' }}">{{ name }} — {{ cfg.host }}</option>
         {% endfor %}
       </select>
 
@@ -34,13 +34,14 @@
 
       <label for="source_type">URL source</label>
       <select id="source_type" name="source_type" required>
+        <option value="saved">Saved sitemap</option>
         <option value="sitemap">Sitemap URL (follows sitemap indexes)</option>
         <option value="txt">TXT file (one URL per line)</option>
         <option value="csv">CSV file (first column)</option>
         <option value="paste">Paste URLs</option>
       </select>
 
-      <div data-source="sitemap">
+      <div data-source="sitemap saved">
         <label for="sitemap_url">Sitemap URL</label>
         <input type="url" id="sitemap_url" name="sitemap_url" placeholder="https://www.example.com/sitemap.xml" />
         <p class="hint">Leave empty to use the sitemap saved on the project. <code>.xml.gz</code> works too.</p>
@@ -200,9 +201,29 @@
       block.hidden = !block.dataset.source.split(' ').includes(chosen);
     });
   }
-  if (sourceSelect) {
-    sourceSelect.addEventListener('change', syncSourceFields);
+  // "Saved sitemap" is offered, and preselected, only when the project has one.
+  const projectSelect = document.getElementById('project');
+  const savedOption = sourceSelect && sourceSelect.querySelector('option[value="saved"]');
+  const sitemapInput = document.getElementById('sitemap_url');
+  const savedSitemap = () => projectSelect.selectedOptions[0].dataset.sitemap;
+  function syncSitemapInput() {
+    const useSaved = sourceSelect.value === 'saved';
+    if (useSaved) sitemapInput.value = savedSitemap();
+    else if (sitemapInput.readOnly) sitemapInput.value = '';
+    sitemapInput.readOnly = useSaved;
+  }
+  function syncSavedOption() {
+    const has = Boolean(savedSitemap());
+    savedOption.hidden = savedOption.disabled = !has;
+    if (has) sourceSelect.value = 'saved';
+    else if (sourceSelect.value === 'saved') sourceSelect.value = 'sitemap';
     syncSourceFields();
+    syncSitemapInput();
+  }
+  if (sourceSelect) {
+    sourceSelect.addEventListener('change', () => { syncSourceFields(); syncSitemapInput(); });
+    projectSelect.addEventListener('change', syncSavedOption);
+    syncSavedOption();
   }
 </script>
 {% endblock %}
